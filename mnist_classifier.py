@@ -1,3 +1,5 @@
+import json
+import os
 import time
 import torch
 import torch.nn as nn
@@ -81,3 +83,16 @@ with torch.no_grad():
 print(f'\nDigit "{TARGET_DIGIT}" vs. rest  |  test set: {total_pos} positives, {total_neg} negatives')
 print(f'False Positives: {fp}/{total_neg} = {100.0 * fp / total_neg:.2f}%  (predicted 3, was not 3)')
 print(f'False Negatives: {fn}/{total_pos} = {100.0 * fn / total_pos:.2f}%  (missed a 3)')
+
+os.makedirs('results', exist_ok=True)
+with open('results/mnist_classifier_metrics.json', 'w') as f:
+    json.dump({
+        'target_digit': TARGET_DIGIT,
+        'epochs': EPOCHS,
+        'test_positives': total_pos,
+        'test_negatives': total_neg,
+        'false_positives': fp,
+        'false_negatives': fn,
+        'false_positive_rate': fp / total_neg,
+        'false_negative_rate': fn / total_pos,
+    }, f, indent=2)

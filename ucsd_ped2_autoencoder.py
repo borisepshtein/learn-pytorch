@@ -1,3 +1,4 @@
+import json
 import os
 import tarfile
 import time
@@ -243,5 +244,20 @@ ax_roc.set_title('Frame-level anomaly detection ROC (UCSD Ped2)')
 ax_roc.legend(loc='lower right')
 
 fig.tight_layout()
-fig.savefig('ucsd_ped2_anomaly.png', dpi=150)
-print('\nSaved visualization to ucsd_ped2_anomaly.png')
+os.makedirs('results', exist_ok=True)
+fig.savefig('results/ucsd_ped2_anomaly.png', dpi=150)
+print('\nSaved visualization to results/ucsd_ped2_anomaly.png')
+
+with open('results/ucsd_ped2_anomaly_metrics.json', 'w') as f:
+    json.dump({
+        'img_size': IMG_SIZE,
+        'latent_dim': LATENT_DIM,
+        'epochs': EPOCHS,
+        'n_train_frames': len(train_paths),
+        'n_test_frames': len(test_paths),
+        'n_test_normal': int((test_labels == 0).sum()),
+        'n_test_anomalous': int((test_labels == 1).sum()),
+        'mean_mse_normal': float(mean_normal),
+        'mean_mse_anomalous': float(mean_abnormal),
+        'roc_auc': float(roc_auc),
+    }, f, indent=2)
