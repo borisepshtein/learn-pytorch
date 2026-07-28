@@ -69,21 +69,27 @@ def corrupt(images):
     sigma = torch.empty(1).uniform_(0.3, 1.0).item()
     images = transforms.functional.gaussian_blur(images, kernel_size=3, sigma=sigma)
 
-    noise_std = torch.empty(1).uniform_(0.03, 0.10).item()
+    noise_std = torch.empty(1).uniform_(0.08, 0.18).item()
     images = images + torch.randn_like(images) * noise_std
     return images.clamp(0, 1)
 
 
 class ConvAutoencoder(nn.Module):
-    def __init__(self):
+    def __init__(self, latent_dim=32):
         super().__init__()
-        self.encoder = nn.Sequential(
+        self.conv_encoder = nn.Sequential(
             nn.Conv2d(1, 16, 3, stride=2, padding=1),  # 28x28 -> 14x14
             nn.ReLU(),
             nn.Conv2d(16, 32, 3, stride=2, padding=1),  # 14x14 -> 7x7
             nn.ReLU(),
         )
-        self.decoder = nn.Sequential(
+        # Dense bottleneck: 32*7*7=1568 values compressed down to latent_dim.
+        # Without this, the conv feature map (bigger than the 784-pixel input)
+        # isn't an actual bottleneck, so the model just learns a generic
+        # deblur/denoise filter instead of specializing to the training digit.
+        self.to_latent = nn.Linear(32 * 7 * 7, latent_dim)
+        self.from_latent = nn.Linear(latent_dim, 32 * 7 * 7)
+        self.conv_decoder = nn.Sequential(
             nn.ConvTranspose2d(32, 16, 3, stride=2, padding=1, output_padding=1),  # 7x7 -> 14x14
             nn.ReLU(),
             nn.ConvTranspose2d(16, 1, 3, stride=2, padding=1, output_padding=1),  # 14x14 -> 28x28
@@ -91,7 +97,11 @@ class ConvAutoencoder(nn.Module):
         )
 
     def forward(self, x):
-        return self.decoder(self.encoder(x))
+        feat = self.conv_encoder(x)
+        b = feat.shape[0]
+        latent = F.relu(self.to_latent(feat.flatten(1)))
+        feat = F.relu(self.from_latent(latent)).view(b, 32, 7, 7)
+        return self.conv_decoder(feat)
 
 
 model = ConvAutoencoder().to(device)
