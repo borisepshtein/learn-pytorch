@@ -12,8 +12,15 @@ from torchvision import datasets, transforms
 
 TRAIN_DIGIT = 3
 ANOMALY_DIGIT = 7
-EPOCHS = 20
+EPOCHS = 30
 N_EXAMPLES = 6
+N_EVAL_REPEATS = 5  # avg per-image error over multiple corruption draws to cut evaluation noise
+LATENT_DIM = 16  # tighter bottleneck -> stronger specialization to the training digit
+
+ELASTIC_ALPHA_RANGE = (10, 18)
+ELASTIC_SIGMA_RANGE = (4, 7)
+BLUR_SIGMA_RANGE = (0.6, 1.6)
+NOISE_STD_RANGE = (0.15, 0.30)
 
 torch.manual_seed(0)
 
@@ -33,66 +40,69 @@ test_digit_idx = (test_data.targets == TRAIN_DIGIT).nonzero(as_tuple=True)[0]
 test_anomaly_idx = (test_data.targets == ANOMALY_DIGIT).nonzero(as_tuple=True)[0]
 
 
-def elastic_deform(images):
-    """Random per-image elastic (nonlinear) warp. images: (B,1,H,W) in [0,1]."""
-    b, _, h, w = images.shape
-    alpha = torch.empty(b, device=images.device).uniform_(6, 10)
-    sigma = torch.empty(b, device=images.device).uniform_(4, 6)
+def elastic_warp_one(img):
+    """Random elastic (nonlinear) warp for a single image. img: (1,1,H,W) in [0,1]."""
+    _, _, h, w = img.shape
+    alpha = torch.empty(1).uniform_(*ELASTIC_ALPHA_RANGE).item()
+    sigma = torch.empty(1).uniform_(*ELASTIC_SIGMA_RANGE).item()
 
-    dx = torch.rand(b, 1, h, w, device=images.device) * 2 - 1
-    dy = torch.rand(b, 1, h, w, device=images.device) * 2 - 1
+    dx = torch.rand(1, 1, h, w, device=img.device) * 2 - 1
+    dy = torch.rand(1, 1, h, w, device=img.device) * 2 - 1
 
-    warped = torch.empty_like(images)
-    for i in range(b):
-        ksize = int(sigma[i].item() * 4) | 1  # force odd
-        dxi = transforms.functional.gaussian_blur(dx[i:i + 1], kernel_size=ksize, sigma=sigma[i].item()) * alpha[i]
-        dyi = transforms.functional.gaussian_blur(dy[i:i + 1], kernel_size=ksize, sigma=sigma[i].item()) * alpha[i]
+    ksize = int(sigma * 4) | 1  # force odd
+    dx = transforms.functional.gaussian_blur(dx, kernel_size=ksize, sigma=sigma) * alpha
+    dy = transforms.functional.gaussian_blur(dy, kernel_size=ksize, sigma=sigma) * alpha
 
-        yy, xx = torch.meshgrid(
-            torch.arange(h, device=images.device, dtype=torch.float32),
-            torch.arange(w, device=images.device, dtype=torch.float32),
-            indexing='ij',
-        )
-        grid_x = 2 * (xx + dxi.squeeze(0).squeeze(0)) / (w - 1) - 1
-        grid_y = 2 * (yy + dyi.squeeze(0).squeeze(0)) / (h - 1) - 1
-        grid = torch.stack([grid_x, grid_y], dim=-1).unsqueeze(0)
+    yy, xx = torch.meshgrid(
+        torch.arange(h, device=img.device, dtype=torch.float32),
+        torch.arange(w, device=img.device, dtype=torch.float32),
+        indexing='ij',
+    )
+    grid_x = 2 * (xx + dx.squeeze(0).squeeze(0)) / (w - 1) - 1
+    grid_y = 2 * (yy + dy.squeeze(0).squeeze(0)) / (h - 1) - 1
+    grid = torch.stack([grid_x, grid_y], dim=-1).unsqueeze(0)
 
-        warped[i:i + 1] = F.grid_sample(images[i:i + 1], grid, align_corners=True, padding_mode='reflection')
+    return F.grid_sample(img, grid, align_corners=True, padding_mode='reflection')
 
-    return warped
+
+def corrupt_one(img):
+    """Elastic warp -> blur -> noise for a single image, each with its own random severity."""
+    img = elastic_warp_one(img)
+
+    blur_sigma = torch.empty(1).uniform_(*BLUR_SIGMA_RANGE).item()
+    img = transforms.functional.gaussian_blur(img, kernel_size=3, sigma=blur_sigma)
+
+    noise_std = torch.empty(1).uniform_(*NOISE_STD_RANGE).item()
+    img = img + torch.randn_like(img) * noise_std
+    return img.clamp(0, 1)
 
 
 def corrupt(images):
-    """Elastic warp -> blur -> noise, mild enough to stay human-recognizable."""
-    images = elastic_deform(images)
-
-    sigma = torch.empty(1).uniform_(0.3, 1.0).item()
-    images = transforms.functional.gaussian_blur(images, kernel_size=3, sigma=sigma)
-
-    noise_std = torch.empty(1).uniform_(0.08, 0.18).item()
-    images = images + torch.randn_like(images) * noise_std
-    return images.clamp(0, 1)
+    """Apply corrupt_one independently to every image in the batch."""
+    return torch.cat([corrupt_one(images[i:i + 1]) for i in range(images.shape[0])], dim=0)
 
 
 class ConvAutoencoder(nn.Module):
-    def __init__(self, latent_dim=32):
+    def __init__(self, latent_dim=LATENT_DIM):
         super().__init__()
         self.conv_encoder = nn.Sequential(
-            nn.Conv2d(1, 16, 3, stride=2, padding=1),  # 28x28 -> 14x14
+            nn.Conv2d(1, 32, 3, stride=2, padding=1),  # 28x28 -> 14x14
             nn.ReLU(),
-            nn.Conv2d(16, 32, 3, stride=2, padding=1),  # 14x14 -> 7x7
+            nn.Conv2d(32, 64, 3, stride=2, padding=1),  # 14x14 -> 7x7
             nn.ReLU(),
         )
-        # Dense bottleneck: 32*7*7=1568 values compressed down to latent_dim.
-        # Without this, the conv feature map (bigger than the 784-pixel input)
-        # isn't an actual bottleneck, so the model just learns a generic
-        # deblur/denoise filter instead of specializing to the training digit.
-        self.to_latent = nn.Linear(32 * 7 * 7, latent_dim)
-        self.from_latent = nn.Linear(latent_dim, 32 * 7 * 7)
+        # Dense bottleneck compresses 64*7*7=3136 conv features down to
+        # latent_dim. Without this, the conv feature map (already bigger
+        # than the 784-pixel input) isn't an actual bottleneck, so the model
+        # learns a generic deblur/denoise filter instead of specializing to
+        # the training digit. Extra conv capacity above lets it fit digit-3
+        # more precisely without loosening this bottleneck.
+        self.to_latent = nn.Linear(64 * 7 * 7, latent_dim)
+        self.from_latent = nn.Linear(latent_dim, 64 * 7 * 7)
         self.conv_decoder = nn.Sequential(
-            nn.ConvTranspose2d(32, 16, 3, stride=2, padding=1, output_padding=1),  # 7x7 -> 14x14
+            nn.ConvTranspose2d(64, 32, 3, stride=2, padding=1, output_padding=1),  # 7x7 -> 14x14
             nn.ReLU(),
-            nn.ConvTranspose2d(16, 1, 3, stride=2, padding=1, output_padding=1),  # 14x14 -> 28x28
+            nn.ConvTranspose2d(32, 1, 3, stride=2, padding=1, output_padding=1),  # 14x14 -> 28x28
             nn.Sigmoid(),
         )
 
@@ -100,7 +110,7 @@ class ConvAutoencoder(nn.Module):
         feat = self.conv_encoder(x)
         b = feat.shape[0]
         latent = F.relu(self.to_latent(feat.flatten(1)))
-        feat = F.relu(self.from_latent(latent)).view(b, 32, 7, 7)
+        feat = F.relu(self.from_latent(latent)).view(b, 64, 7, 7)
         return self.conv_decoder(feat)
 
 
@@ -128,13 +138,22 @@ print(f'Total training time: {time.time() - t0:.1f}s')
 
 
 def per_image_error(indices):
-    """Corrupt, reconstruct, and return (clean, noisy, recon, per-image MSE) for the given test indices."""
+    """Corrupt, reconstruct, and return (clean, noisy, recon, per-image MSE) for the given test indices.
+
+    MSE is averaged over N_EVAL_REPEATS independent corruption draws per image,
+    so the histogram reflects the model's real generalization gap rather than
+    noise from a single random corruption draw per image.
+    """
     clean = torch.stack([test_data[i][0] for i in indices]).to(device)
     model.eval()
+    mse_sum = torch.zeros(clean.shape[0], device=device)
+    noisy = recon = None
     with torch.no_grad():
-        noisy = corrupt(clean)
-        recon = model(noisy)
-        mse = ((recon - clean) ** 2).flatten(1).mean(dim=1)
+        for _ in range(N_EVAL_REPEATS):
+            noisy = corrupt(clean)
+            recon = model(noisy)
+            mse_sum += ((recon - clean) ** 2).flatten(1).mean(dim=1)
+    mse = mse_sum / N_EVAL_REPEATS
     return clean.cpu(), noisy.cpu(), recon.cpu(), mse.cpu()
 
 
