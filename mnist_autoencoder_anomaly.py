@@ -11,7 +11,7 @@ from torch.utils.data import DataLoader, Subset
 from torchvision import datasets, transforms
 
 TRAIN_DIGIT = 3
-ANOMALY_DIGIT = 7
+ANOMALY_DIGIT = 8
 EPOCHS = 30
 N_EXAMPLES = 6
 N_EVAL_REPEATS = 5  # avg per-image error over multiple corruption draws to cut evaluation noise
