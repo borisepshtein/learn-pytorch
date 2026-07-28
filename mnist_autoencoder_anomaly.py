@@ -17,8 +17,8 @@ N_EXAMPLES = 6
 N_EVAL_REPEATS = 5  # avg per-image error over multiple corruption draws to cut evaluation noise
 LATENT_DIM = 16  # tighter bottleneck -> stronger specialization to the training digit
 
-ELASTIC_ALPHA_RANGE = (10, 18)
-ELASTIC_SIGMA_RANGE = (4, 7)
+ELASTIC_ALPHA_RANGE = (3, 6)  # max pixel displacement, after the field is re-normalized below
+ELASTIC_SIGMA_RANGE = (4, 7)  # controls smoothness/character of the warp, not its magnitude
 BLUR_SIGMA_RANGE = (0.6, 1.6)
 NOISE_STD_RANGE = (0.15, 0.30)
 
@@ -50,8 +50,16 @@ def elastic_warp_one(img):
     dy = torch.rand(1, 1, h, w, device=img.device) * 2 - 1
 
     ksize = int(sigma * 4) | 1  # force odd
-    dx = transforms.functional.gaussian_blur(dx, kernel_size=ksize, sigma=sigma) * alpha
-    dy = transforms.functional.gaussian_blur(dy, kernel_size=ksize, sigma=sigma) * alpha
+    dx = transforms.functional.gaussian_blur(dx, kernel_size=ksize, sigma=sigma)
+    dy = transforms.functional.gaussian_blur(dy, kernel_size=ksize, sigma=sigma)
+
+    # Blurring averages together many independent samples, which shrinks the
+    # field's magnitude by an amount that depends on sigma (more so for larger
+    # sigma). Re-normalize to a known scale first, so alpha directly controls
+    # the max pixel displacement regardless of sigma, instead of being fought
+    # by an un-tracked attenuation from the blur step.
+    dx = dx / (dx.abs().max() + 1e-8) * alpha
+    dy = dy / (dy.abs().max() + 1e-8) * alpha
 
     yy, xx = torch.meshgrid(
         torch.arange(h, device=img.device, dtype=torch.float32),
