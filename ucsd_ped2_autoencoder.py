@@ -20,9 +20,14 @@ from experiment_log import log_experiment
 
 IMG_SIZE = 128
 LATENT_DIM = 128
-EPOCHS = 30
 BATCH_SIZE = 32
 N_EXAMPLES = 5  # per row in the qualitative example grid
+
+MIN_EPOCHS = 30
+MAX_EPOCHS = 100
+PATIENCE = 5  # epochs to wait for a significant val-loss improvement before stopping
+MIN_REL_IMPROVEMENT = 0.01  # val loss must drop by at least 1% to count as improvement
+VAL_FRACTION = 0.1  # held-out slice of the normal training frames, used only for early stopping
 
 DATA_ROOT = './data'
 DATASET_URL = 'http://www.svcl.ucsd.edu/projects/anomaly/UCSD_Anomaly_Dataset.tar.gz'
@@ -178,14 +183,28 @@ test_labels = np.array(test_labels)
 print(f'Train frames (normal only): {len(train_paths)}')
 print(f'Test frames: {len(test_paths)}  (normal={int((test_labels == 0).sum())}, anomalous={int((test_labels == 1).sum())})')
 
-train_loader = DataLoader(FrameDataset(train_paths), batch_size=BATCH_SIZE, shuffle=True)
+val_rng = np.random.default_rng(0)
+perm = val_rng.permutation(len(train_paths))
+n_val = max(1, int(len(train_paths) * VAL_FRACTION))
+val_paths = [train_paths[i] for i in perm[:n_val]]
+fit_paths = [train_paths[i] for i in perm[n_val:]]
+print(f'Training on {len(fit_paths)} frames, holding out {len(val_paths)} for early-stopping validation')
+
+train_loader = DataLoader(FrameDataset(fit_paths), batch_size=BATCH_SIZE, shuffle=True)
+val_loader = DataLoader(FrameDataset(val_paths), batch_size=BATCH_SIZE, shuffle=False)
 
 model = ConvAutoencoder().to(device)
 optimizer = optim.Adam(model.parameters(), lr=1e-3)
 criterion = nn.MSELoss()
 
+best_val_loss = float('inf')
+best_state = None
+epochs_without_improvement = 0
+epoch = 0
+
 t0 = time.time()
-for epoch in range(1, EPOCHS + 1):
+while epoch < MAX_EPOCHS:
+    epoch += 1
     model.train()
     running_loss = 0.0
     t_epoch = time.time()
@@ -197,8 +216,33 @@ for epoch in range(1, EPOCHS + 1):
         loss.backward()
         optimizer.step()
         running_loss += loss.item()
-    print(f'Epoch {epoch}/{EPOCHS}  avg loss: {running_loss / len(train_loader):.4f}  ({time.time() - t_epoch:.1f}s)')
-print(f'Total training time: {time.time() - t0:.1f}s')
+    train_loss = running_loss / len(train_loader)
+
+    model.eval()
+    val_running_loss = 0.0
+    with torch.no_grad():
+        for frames in val_loader:
+            frames = frames.to(device)
+            recon = model(frames)
+            val_running_loss += criterion(recon, frames).item()
+    val_loss = val_running_loss / len(val_loader)
+
+    print(f'Epoch {epoch}/{MAX_EPOCHS}  train loss: {train_loss:.5f}  val loss: {val_loss:.5f}  ({time.time() - t_epoch:.1f}s)')
+
+    if val_loss < best_val_loss * (1 - MIN_REL_IMPROVEMENT):
+        best_val_loss = val_loss
+        best_state = {k: v.detach().clone() for k, v in model.state_dict().items()}
+        epochs_without_improvement = 0
+    else:
+        epochs_without_improvement += 1
+
+    if epoch >= MIN_EPOCHS and epochs_without_improvement >= PATIENCE:
+        print(f'Early stopping at epoch {epoch}: val loss has not improved by >={MIN_REL_IMPROVEMENT:.0%} '
+              f'for {PATIENCE} epochs')
+        break
+
+model.load_state_dict(best_state)
+print(f'Total training time: {time.time() - t0:.1f}s  ({epoch} epochs run, best val loss {best_val_loss:.5f})')
 
 # --- Evaluation: per-frame reconstruction error as an anomaly score ---
 test_loader = DataLoader(FrameDataset(test_paths), batch_size=BATCH_SIZE, shuffle=False)
@@ -273,8 +317,13 @@ print('\nSaved visualization to results/ucsd_ped2_anomaly.png')
 metrics = {
     'img_size': IMG_SIZE,
     'latent_dim': LATENT_DIM,
-    'epochs': EPOCHS,
-    'n_train_frames': len(train_paths),
+    'min_epochs': MIN_EPOCHS,
+    'max_epochs': MAX_EPOCHS,
+    'patience': PATIENCE,
+    'epochs_run': epoch,
+    'best_val_loss': float(best_val_loss),
+    'n_train_frames': len(fit_paths),
+    'n_val_frames': len(val_paths),
     'n_test_frames': len(test_paths),
     'n_test_normal': int((test_labels == 0).sum()),
     'n_test_anomalous': int((test_labels == 1).sum()),
