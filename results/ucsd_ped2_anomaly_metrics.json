@@ -1,0 +1,12 @@
+{
+  "img_size": 128,
+  "latent_dim": 128,
+  "epochs": 30,
+  "n_train_frames": 245,
+  "n_test_frames": 2010,
+  "n_test_normal": 362,
+  "n_test_anomalous": 1648,
+  "mean_mse_normal": 0.0028691694606095552,
+  "mean_mse_anomalous": 0.003303342731669545,
+  "roc_auc": 0.6297035080190958
+}
