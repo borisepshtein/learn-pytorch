@@ -16,6 +16,8 @@ from sklearn.metrics import auc, roc_curve
 from torch.utils.data import DataLoader, Dataset
 from torchvision import transforms
 
+from experiment_log import log_experiment
+
 IMG_SIZE = 128
 LATENT_DIM = 128
 EPOCHS = 30
@@ -248,16 +250,18 @@ os.makedirs('results', exist_ok=True)
 fig.savefig('results/ucsd_ped2_anomaly.png', dpi=150)
 print('\nSaved visualization to results/ucsd_ped2_anomaly.png')
 
+metrics = {
+    'img_size': IMG_SIZE,
+    'latent_dim': LATENT_DIM,
+    'epochs': EPOCHS,
+    'n_train_frames': len(train_paths),
+    'n_test_frames': len(test_paths),
+    'n_test_normal': int((test_labels == 0).sum()),
+    'n_test_anomalous': int((test_labels == 1).sum()),
+    'mean_mse_normal': float(mean_normal),
+    'mean_mse_anomalous': float(mean_abnormal),
+    'roc_auc': float(roc_auc),
+}
 with open('results/ucsd_ped2_anomaly_metrics.json', 'w') as f:
-    json.dump({
-        'img_size': IMG_SIZE,
-        'latent_dim': LATENT_DIM,
-        'epochs': EPOCHS,
-        'n_train_frames': len(train_paths),
-        'n_test_frames': len(test_paths),
-        'n_test_normal': int((test_labels == 0).sum()),
-        'n_test_anomalous': int((test_labels == 1).sum()),
-        'mean_mse_normal': float(mean_normal),
-        'mean_mse_anomalous': float(mean_abnormal),
-        'roc_auc': float(roc_auc),
-    }, f, indent=2)
+    json.dump(metrics, f, indent=2)
+log_experiment('ucsd_ped2_autoencoder', metrics)

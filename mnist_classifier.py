@@ -2,6 +2,7 @@ import json
 import os
 import time
 import torch
+from experiment_log import log_experiment
 import torch.nn as nn
 import torch.optim as optim
 from torchvision import datasets, transforms
@@ -85,14 +86,16 @@ print(f'False Positives: {fp}/{total_neg} = {100.0 * fp / total_neg:.2f}%  (pred
 print(f'False Negatives: {fn}/{total_pos} = {100.0 * fn / total_pos:.2f}%  (missed a 3)')
 
 os.makedirs('results', exist_ok=True)
+metrics = {
+    'target_digit': TARGET_DIGIT,
+    'epochs': EPOCHS,
+    'test_positives': total_pos,
+    'test_negatives': total_neg,
+    'false_positives': fp,
+    'false_negatives': fn,
+    'false_positive_rate': fp / total_neg,
+    'false_negative_rate': fn / total_pos,
+}
 with open('results/mnist_classifier_metrics.json', 'w') as f:
-    json.dump({
-        'target_digit': TARGET_DIGIT,
-        'epochs': EPOCHS,
-        'test_positives': total_pos,
-        'test_negatives': total_neg,
-        'false_positives': fp,
-        'false_negatives': fn,
-        'false_positive_rate': fp / total_neg,
-        'false_negative_rate': fn / total_pos,
-    }, f, indent=2)
+    json.dump(metrics, f, indent=2)
+log_experiment('mnist_classifier', metrics)

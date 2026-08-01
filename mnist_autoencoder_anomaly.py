@@ -12,6 +12,8 @@ import torch.optim as optim
 from torch.utils.data import DataLoader, Subset
 from torchvision import datasets, transforms
 
+from experiment_log import log_experiment
+
 TRAIN_DIGIT = 3
 ANOMALY_DIGIT = 8
 EPOCHS = 30
@@ -212,18 +214,20 @@ os.makedirs('results', exist_ok=True)
 fig.savefig('results/autoencoder_anomaly.png', dpi=150)
 print('\nSaved visualization to results/autoencoder_anomaly.png')
 
+metrics = {
+    'train_digit': TRAIN_DIGIT,
+    'anomaly_digit': ANOMALY_DIGIT,
+    'epochs': EPOCHS,
+    'latent_dim': LATENT_DIM,
+    'n_eval_repeats': N_EVAL_REPEATS,
+    'mse_train_digit_mean': mse3.mean().item(),
+    'mse_train_digit_std': mse3.std().item(),
+    'mse_train_digit_n': len(mse3),
+    'mse_anomaly_digit_mean': mse7.mean().item(),
+    'mse_anomaly_digit_std': mse7.std().item(),
+    'mse_anomaly_digit_n': len(mse7),
+    'mean_error_ratio': (mse7.mean() / mse3.mean()).item(),
+}
 with open('results/autoencoder_anomaly_metrics.json', 'w') as f:
-    json.dump({
-        'train_digit': TRAIN_DIGIT,
-        'anomaly_digit': ANOMALY_DIGIT,
-        'epochs': EPOCHS,
-        'latent_dim': LATENT_DIM,
-        'n_eval_repeats': N_EVAL_REPEATS,
-        'mse_train_digit_mean': mse3.mean().item(),
-        'mse_train_digit_std': mse3.std().item(),
-        'mse_train_digit_n': len(mse3),
-        'mse_anomaly_digit_mean': mse7.mean().item(),
-        'mse_anomaly_digit_std': mse7.std().item(),
-        'mse_anomaly_digit_n': len(mse7),
-        'mean_error_ratio': (mse7.mean() / mse3.mean()).item(),
-    }, f, indent=2)
+    json.dump(metrics, f, indent=2)
+log_experiment('mnist_autoencoder_anomaly', metrics)
