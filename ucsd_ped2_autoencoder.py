@@ -72,6 +72,16 @@ def is_clip_dir(path):
     return os.path.isdir(path) and not os.path.basename(path).endswith('_gt')
 
 
+def is_readable_image(path):
+    """Some frames in the archive come through corrupted/truncated (flaky old download server, no checksum)."""
+    try:
+        with Image.open(path) as img:
+            img.verify()
+        return True
+    except Exception:
+        return False
+
+
 def collect_train_frames():
     clip_dirs = sorted(p for p in
                         (os.path.join(PED2_DIR, 'Train', d) for d in os.listdir(os.path.join(PED2_DIR, 'Train')))
@@ -79,7 +89,11 @@ def collect_train_frames():
     paths = []
     for clip_dir in clip_dirs:
         paths.extend(list_frames(clip_dir))
-    return paths
+    valid_paths = [p for p in paths if is_readable_image(p)]
+    n_skipped = len(paths) - len(valid_paths)
+    if n_skipped:
+        print(f'Skipped {n_skipped} unreadable/corrupt training frame(s)')
+    return valid_paths
 
 
 def collect_test_frames():
@@ -88,16 +102,22 @@ def collect_test_frames():
                         (os.path.join(PED2_DIR, 'Test', d) for d in os.listdir(os.path.join(PED2_DIR, 'Test')))
                         if is_clip_dir(p))
     paths, labels = [], []
+    n_skipped = 0
     for clip_dir in clip_dirs:
         frames = list_frames(clip_dir)
         gt_frames = list_frames(clip_dir + '_gt')
         for i, frame_path in enumerate(frames):
-            paths.append(frame_path)
-            if i < len(gt_frames):
+            if not is_readable_image(frame_path):
+                n_skipped += 1
+                continue
+            label = 0
+            if i < len(gt_frames) and is_readable_image(gt_frames[i]):
                 mask = np.array(Image.open(gt_frames[i]))
-                labels.append(int(mask.any()))
-            else:
-                labels.append(0)  # no mask available -> assume normal
+                label = int(mask.any())
+            paths.append(frame_path)
+            labels.append(label)
+    if n_skipped:
+        print(f'Skipped {n_skipped} unreadable/corrupt test frame(s)')
     return paths, labels
 
 
