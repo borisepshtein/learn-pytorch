@@ -132,7 +132,13 @@ def estimate_ages(filenames, cache_key):
     for i, fn in enumerate(filenames):
         path = os.path.join(IMAGES_DIR, fn)
         try:
-            result = DeepFace.analyze(img_path=path, actions=['age'], enforce_detection=False, silent=True)
+            # detector_backend='skip': these images are already tight single-face crops, and
+            # DeepFace's default 'opencv' backend calls cv2.CascadeClassifier to re-detect/crop the
+            # face first, which crashes on some Colab cv2 builds ("module 'cv2' has no attribute
+            # 'CascadeClassifier'") regardless of enforce_detection. Skipping detection avoids that
+            # code path entirely and is also the semantically correct choice here.
+            result = DeepFace.analyze(img_path=path, actions=['age'], detector_backend='skip',
+                                       enforce_detection=False, silent=True)
             ages[fn] = float(result[0]['age'] if isinstance(result, list) else result['age'])
         except Exception as e:
             print(f'  age estimation failed for {fn}: {e}')
