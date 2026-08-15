@@ -7,49 +7,79 @@
     {
       "source": "CF",
       "target": "AF",
+      "source_label": "CF",
+      "source_n": 750,
       "source_score_threshold": 2.966667,
       "target_score_threshold": 2.966667,
       "n_train": 525,
       "n_val": 112,
       "epochs_run": 8,
-      "best_val_loss": 0.3323254775241651,
+      "best_val_loss": 0.3339337433571359,
       "in_domain": {
         "n": 113,
-        "accuracy": 0.8938053097345132,
+        "accuracy": 0.8849557522123894,
         "roc_auc": 0.9580200501253133,
-        "mean_score_pretty": 0.8149129152297974,
-        "mean_score_average": 0.10803890228271484
+        "mean_score_pretty": 0.8141517043113708,
+        "mean_score_average": 0.10717853158712387
       },
       "cross_domain": {
         "n": 2000,
-        "accuracy": 0.5045,
-        "roc_auc": 0.8320363281453125,
-        "mean_score_pretty": 0.9878580570220947,
-        "mean_score_average": 0.9332942962646484
+        "accuracy": 0.505,
+        "roc_auc": 0.8313613254453018,
+        "mean_score_pretty": 0.9880180358886719,
+        "mean_score_average": 0.9342108964920044
       }
     },
     {
       "source": "AF",
       "target": "CF",
+      "source_label": "AF",
+      "source_n": 2000,
       "source_score_threshold": 2.966667,
       "target_score_threshold": 2.966667,
       "n_train": 1400,
       "n_val": 300,
       "epochs_run": 8,
-      "best_val_loss": 0.3088626964706691,
+      "best_val_loss": 0.31921157498392555,
       "in_domain": {
         "n": 300,
-        "accuracy": 0.8433333333333334,
-        "roc_auc": 0.928174585537135,
-        "mean_score_pretty": 0.8614110946655273,
-        "mean_score_average": 0.23125450313091278
+        "accuracy": 0.8333333333333334,
+        "roc_auc": 0.9273745499799991,
+        "mean_score_pretty": 0.8720841407775879,
+        "mean_score_average": 0.2532830536365509
       },
       "cross_domain": {
         "n": 750,
-        "accuracy": 0.8453333333333334,
-        "roc_auc": 0.9144437886233208,
-        "mean_score_pretty": 0.8280194401741028,
-        "mean_score_average": 0.26905152201652527
+        "accuracy": 0.824,
+        "roc_auc": 0.9140171098200126,
+        "mean_score_pretty": 0.8443386554718018,
+        "mean_score_average": 0.30556321144104004
+      }
+    },
+    {
+      "source": "AF",
+      "target": "CF",
+      "source_label": "AF(n=750)",
+      "source_n": 750,
+      "source_score_threshold": 2.966667,
+      "target_score_threshold": 2.966667,
+      "n_train": 525,
+      "n_val": 112,
+      "epochs_run": 9,
+      "best_val_loss": 0.343972283282028,
+      "in_domain": {
+        "n": 113,
+        "accuracy": 0.9203539823008849,
+        "roc_auc": 0.9827694235588973,
+        "mean_score_pretty": 0.92906653881073,
+        "mean_score_average": 0.13332082331180573
+      },
+      "cross_domain": {
+        "n": 750,
+        "accuracy": 0.8146666666666667,
+        "roc_auc": 0.9088116284196528,
+        "mean_score_pretty": 0.8579962849617004,
+        "mean_score_average": 0.2913530468940735
       }
     }
   ]
