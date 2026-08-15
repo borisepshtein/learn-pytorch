@@ -131,14 +131,16 @@ story.append(P(
     '(in-domain AUC 0.927 vs. cross-domain AUC 0.914), while a model trained on CF faces transfers to '
     'AF faces with severely degraded calibration (cross-domain accuracy collapses to 0.505, chance '
     'level) even though its rank-ordering partially survives (cross-domain AUC 0.832). A controlled '
-    're-run with AF capped at CF&rsquo;s training-set size rules out sample size as the explanation. We test '
-    'and reject two further hypotheses &mdash; an oval-crop framing artifact and a hair-color shortcut, '
-    'the latter via a corrected landmark-based hair-exclusion crop after a flawed grayscale-ablation '
-    'proposal was caught and fixed mid-project &mdash; and report a hairline-region Grad-CAM signal in '
-    '&ldquo;average&rdquo; predictions that remains unexplained. We do not claim to resolve whether beauty is '
-    'objective; we show that a plausible-looking, statistically stable classifier can still be poorly '
-    'calibrated across populations for reasons that resist simple explanation, and that most of our '
-    'own hypotheses about why did not survive contact with the full dataset.', abstract_body))
+    're-run with AF capped at CF&rsquo;s training-set size rules out sample size as the explanation. We reject '
+    'an oval-crop framing-artifact hypothesis outright, and find mixed evidence on hair: a coarse '
+    'regional hue/saturation/brightness proxy shows no strong effect, but a direct causal test &mdash; '
+    'cropping every face to its facial-landmark bounding box to exclude hair almost entirely, after a '
+    'flawed grayscale-ablation proposal was caught and corrected mid-project &mdash; raises cross-domain '
+    'accuracy from 0.505 (chance) to 0.596 and AUC from 0.832 to 0.867, showing hair region was part of '
+    'the shortcut without fully explaining it. We do not claim to resolve whether beauty is objective; '
+    'we show that a plausible-looking, statistically stable classifier can still be poorly calibrated '
+    'across populations for reasons only partly explained by any single mechanism we tested, and that '
+    'most of our own hypotheses about why did not survive contact with the full dataset.', abstract_body))
 
 story.append(NextPageTemplate('TwoCol'))
 story.append(PageBreak())
@@ -274,7 +276,7 @@ story.append(P(
     'cross-population variance comparison contradicted the premise: AF showed <i>higher</i> saturation '
     'variance (44.8) than CF (31.2), not lower. This simple proxy did not support the hypothesis.', body))
 
-story.append(subsection('4.7 Hair-Exclusion Ablation (In Progress)'))
+story.append(subsection('4.7 Hair-Exclusion Ablation'))
 story.append(P(
     'A regional color average can miss a spatially-localized cue a CNN could still exploit, so we '
     'designed a more direct test: crop every face to its 86-point facial-landmark bounding box '
@@ -283,9 +285,20 @@ story.append(P(
     'incorrect and was caught before implementation: grayscale removes hue/chroma but preserves '
     'luminance, and hair lightness (the main axis of the color hypothesis) is primarily a luminance '
     'signal &mdash; blonde hair stays visibly light and dark hair stays visibly dark after desaturation, so '
-    'a grayscale ablation would not have tested what it claimed to. The landmark-crop version was '
-    'implemented and run as of this writing, but results were not yet available at the time this draft '
-    'was written; we report the method and defer results to a revision.', body))
+    'a grayscale ablation would not have tested what it claimed to.', body))
+story.append(P(
+    'Result (Figure 4): excluding hair <b>meaningfully improved, but did not fix,</b> CF&rarr;AF '
+    'calibration. Cross-domain accuracy rose from 0.505 (chance) to 0.596, cross-domain AUC rose from '
+    '0.832 to 0.867, and &mdash; the clearest sign of a real effect &mdash; the mean score for true-average AF '
+    'faces dropped from 0.933 (barely distinguishable from true-pretty&rsquo;s 0.988) to 0.748 (vs. '
+    '0.970), a real widening of the separation. The already-good AF&rarr;CF direction was essentially '
+    'unaffected (cross-domain AUC 0.914&rarr;0.921). So hair region was part of the CF&rarr;AF shortcut, '
+    'but not the whole story: cross-domain accuracy (0.596) remains far below in-domain (0.894) even '
+    'with hair excluded. This directly contradicts our own &sect;4.6 proxy check, which found no strong '
+    'hair-color signal &mdash; a spatially-localized cue a coarse regional pixel average can miss entirely. '
+    'Grad-CAM on the hair-excluded crops also shows a qualitative shift: &ldquo;average&rdquo;-predicted AF '
+    'faces now draw attention to the mouth/jaw region rather than the hairline or image corners seen '
+    'in earlier figures &mdash; a new, as yet unexplained, observation.', body))
 
 # ---------------- Figure 2 ----------------
 story.append(NextPageTemplate('Full'))
@@ -311,6 +324,8 @@ table_data = [
     ['Trained CF, tested AF', '525', '0.885 / 0.958', '0.505 / 0.832', 'calibration collapse (§4.4)'],
     ['Trained AF(2000), tested CF', '1400', '0.833 / 0.927', '0.824 / 0.914', 'transfers cleanly (§4.4)'],
     ['Trained AF(750), tested CF', '525', '0.920 / 0.983', '0.815 / 0.909', 'rules out data volume (§4.5)'],
+    ['Trained CF, tested AF (no hair)', '525', '0.894 / 0.971', '0.596 / 0.867', 'hair partly explains it (§4.7)'],
+    ['Trained AF, tested CF (no hair)', '1400', '0.867 / 0.936', '0.820 / 0.921', 'unaffected by crop (§4.7)'],
 ]
 tbl = Table(table_data, colWidths=[1.7 * inch, 0.7 * inch, 1.35 * inch, 1.35 * inch, 1.6 * inch])
 tbl.setStyle(TableStyle([
@@ -336,6 +351,17 @@ story.append(P(
     '(bottom), which excludes hair almost entirely except for some residual fringe/bangs leakage in a '
     'minority of hairstyles where hair hangs low over the forehead, inside the landmark bounding box.',
     caption))
+
+story.append(NextPageTemplate('Full'))
+story.append(PageBreak())
+story.append(fit_image(os.path.join(FIG_DIR, 'scut_fbp_beauty_cross_race_transfer_no_hair.png'),
+                        6.6 * inch, 8.4 * inch))
+story.append(P(
+    '<b>Figure 4.</b> Cross-population transfer with hair excluded (&sect;4.7), same layout as Figure 2. '
+    'Top: trained on CF, cross-domain AF AUC rises to 0.867 (from 0.832 with hair) and the '
+    '&ldquo;average&rdquo;-predicted AF examples now draw Grad-CAM attention to the mouth/jaw rather than the '
+    'hairline or image corners seen with hair included. Bottom: the already-good AF&rarr;CF direction is '
+    'essentially unchanged.', caption))
 story.append(NextPageTemplate('TwoCol'))
 story.append(PageBreak())
 
@@ -347,19 +373,24 @@ story.append(P(
     'against &ldquo;these judgments are purely population-specific and share nothing across groups.&rdquo; The '
     'CF&rarr;AF direction losing calibration (while keeping a well-above-chance AUC) argues against '
     '&ldquo;the learned signal is a population-independent, objective beauty detector&rdquo; in any strong sense '
-    '&mdash; if it were, both directions should transfer symmetrically. The asymmetry itself, and our '
-    'inability to explain it with any of the specific mechanisms we tested (framing, image quality, '
-    'sample size, coarse hair color), is the most interesting finding in this report, and it is '
-    'presently unexplained rather than resolved.', body))
+    '&mdash; if it were, both directions should transfer symmetrically. The asymmetry itself is the most '
+    'interesting finding in this report. Of the mechanisms we tested, framing, image quality, and '
+    'sample size explain none of it; hair region (&sect;4.7) explains some of it (cross-domain accuracy '
+    'rose 9 points once hair was excluded) but far from all of it (0.596 cross-domain vs. 0.894 '
+    'in-domain remains a large gap). The residual gap, and the new mouth/jaw Grad-CAM signal that '
+    'appeared once hair was removed, are unexplained and would be the natural next thing to chase.', body))
 story.append(P(
     'A methodological point we think is worth stating plainly: two of our own hypotheses (the '
-    'oval-crop framing artifact in &sect;4.2, the hair-color shortcut in &sect;4.6) looked convincing from a '
-    'small number of examples and did not survive being checked against the full population. A third '
+    'oval-crop framing artifact in &sect;4.2, and the coarse-proxy version of the hair-color hypothesis in '
+    '&sect;4.6) looked convincing or conclusive from a small number of examples or a crude summary '
+    'statistic, and were each contradicted by a more careful check &mdash; the framing artifact did not '
+    'survive being checked against the full population, and the hair hypothesis&rsquo;s regional-average '
+    'proxy missed an effect that a direct crop-and-retrain ablation later confirmed was real. A third '
     'proposed check (grayscale ablation) was conceptually wrong and was caught only because a '
     'collaborator asked &ldquo;what do I miss?&rdquo; instead of accepting the plan. We think this is a fair '
-    'representation of what interpretability work on small models often looks like in practice: most '
-    'plausible stories are wrong, and checking them against the full data (or getting a second opinion) '
-    'is not optional.', body))
+    'representation of what interpretability work on small models often looks like in practice: '
+    'plausible-looking proxies can point the wrong way in either direction, and checking a hypothesis '
+    'with the most direct available test (or getting a second opinion) is not optional.', body))
 
 story.append(section('6. Limitations and Ethical Considerations'))
 story.append(P(
@@ -381,12 +412,13 @@ story.append(section('7. Conclusion'))
 story.append(P(
     'A ResNet18 classifier separates &ldquo;pretty&rdquo; from &ldquo;average&rdquo; Caucasian-female faces with high, '
     'stable accuracy, but calibrates poorly when applied to Asian-female faces despite retaining a '
-    'partially useful ranking signal &mdash; and the reverse direction transfers almost perfectly. Neither '
-    'framing artifacts, image-quality confounds, training-set size, nor a coarse hair-color proxy '
-    'explain the asymmetry; a more direct hair-exclusion test is implemented and pending results. We '
-    'report this as an audit of what a plausible-looking classifier does and does not generalize, not '
-    'as evidence for or against the objectivity of beauty, and we hope the sequence of wrong hypotheses '
-    'is at least as useful to a reader as the ones that held up.', body))
+    'partially useful ranking signal &mdash; and the reverse direction transfers almost perfectly. Framing '
+    'artifacts, image-quality confounds, and training-set size explain none of the asymmetry; excluding '
+    'hair via a facial-landmark crop explains some of it (chance-level cross-domain accuracy rises to '
+    '0.596) but leaves most of the gap (vs. 0.894 in-domain) unaccounted for. We report this as an audit '
+    'of what a plausible-looking classifier does and does not generalize, not as evidence for or against '
+    'the objectivity of beauty, and we hope the sequence of tested and partly-wrong hypotheses is at '
+    'least as useful to a reader as the ones that held up.', body))
 
 story.append(section('Acknowledgments'))
 story.append(P(
