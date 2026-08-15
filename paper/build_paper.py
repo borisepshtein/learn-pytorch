@@ -142,6 +142,15 @@ story.append(P(
     'across populations for reasons only partly explained by any single mechanism we tested, and that '
     'most of our own hypotheses about why did not survive contact with the full dataset.', abstract_body))
 
+story.append(Spacer(1, 4))
+story.append(fit_image(os.path.join(FIG_DIR, 'scut_fbp_beauty_rating_scale_examples.png'), 3.6 * inch, 2.3 * inch))
+story.append(P(
+    '<b>Figure 1.</b> What the label actually means: four CF images closest to each integer mean rating '
+    '(shown above each face), from the least-attractive to the most-attractive end of the scale. No '
+    'image is rated exactly 1 or 5 &mdash; individual scores are means of 60 raters and rarely reach the '
+    'scale&rsquo;s endpoints; these are the closest available. The median split used throughout this report '
+    '(&sect;3) falls at 2.97, between the second and third rows.', caption))
+
 story.append(NextPageTemplate('TwoCol'))
 story.append(PageBreak())
 
@@ -210,12 +219,12 @@ story.append(P(
     'uses random horizontal flip as the only augmentation. Sigmoid output is used directly as a '
     '&ldquo;beauty score.&rdquo; All code and raw per-run metrics are version-controlled alongside this paper.', body))
 
-# ---------------- Figure 1 (full width) ----------------
+# ---------------- Figure 2 (full width) ----------------
 story.append(NextPageTemplate('Full'))
 story.append(PageBreak())
 story.append(fit_image(os.path.join(FIG_DIR, 'scut_fbp_beauty.png'), PAGE_W - 2 * MARGIN, 8.1 * inch))
 story.append(P(
-    '<b>Figure 1.</b> Baseline CF classifier, 5-fold cross-validation. Top: training/validation loss '
+    '<b>Figure 2.</b> Baseline CF classifier, 5-fold cross-validation. Top: training/validation loss '
     '(fold 1). Rows 2&ndash;5: the five highest- and five lowest-scoring test faces (fold 1) with '
     'Grad-CAM overlays &mdash; attention on &ldquo;pretty&rdquo; predictions concentrates on central facial '
     'structure (nose, cheeks, mouth); attention on &ldquo;average&rdquo; predictions is weaker/more diffuse and '
@@ -252,7 +261,7 @@ story.append(subsection('4.3 Stability (5-fold CV)'))
 story.append(P(
     'A single split&rsquo;s 0.960 AUC could be a fluke of a favorable 113-image test set. Five-fold '
     'stratified cross-validation (a fresh ResNet18 per fold) gives accuracy 0.875&plusmn;0.026 and ROC AUC '
-    '0.944&plusmn;0.012 (fold range: 0.927&ndash;0.959) &mdash; see Figure 1. The result is stable, not a fluke of '
+    '0.944&plusmn;0.012 (fold range: 0.927&ndash;0.959) &mdash; see Figure 2. The result is stable, not a fluke of '
     'one split, though the original single-split AUC was near the best fold rather than the mean.', body))
 
 story.append(subsection('4.4 Cross-Population Transfer'))
@@ -260,7 +269,7 @@ story.append(P(
     'The most direct test of whether the learned distinction generalizes beyond its training '
     'population: train on one race/gender subset, evaluate in-domain (held-out faces from the same '
     'subset) and cross-domain (the full other subset, labeled by its own median split). Table 1 '
-    'summarizes all runs; Figure 2 shows ROC curves and Grad-CAM on the cross-domain extremes.', body))
+    'summarizes all runs; Figure 3 shows ROC curves and Grad-CAM on the cross-domain extremes.', body))
 story.append(P(
     'Trained on CF, in-domain AUC is 0.958, but cross-domain AUC on the full AF set (n=2000) drops to '
     '0.831&ndash;0.832 and accuracy collapses to 0.505 &mdash; chance level. The mean predicted score for both '
@@ -293,14 +302,14 @@ story.append(subsection('4.7 Hair-Exclusion Ablation'))
 story.append(P(
     'A regional color average can miss a spatially-localized cue a CNN could still exploit, so we '
     'designed a more direct test: crop every face to its 86-point facial-landmark bounding box '
-    '(eyebrows to chin, cheek to cheek), which excludes hair almost entirely (Figure 3), and re-run the '
+    '(eyebrows to chin, cheek to cheek), which excludes hair almost entirely (Figure 4), and re-run the '
     'CF&harr;AF transfer test on the crops. An initial proposal to test this via grayscale conversion was '
     'incorrect and was caught before implementation: grayscale removes hue/chroma but preserves '
     'luminance, and hair lightness (the main axis of the color hypothesis) is primarily a luminance '
     'signal &mdash; blonde hair stays visibly light and dark hair stays visibly dark after desaturation, so '
     'a grayscale ablation would not have tested what it claimed to.', body))
 story.append(P(
-    'Result (Figure 4): excluding hair <b>meaningfully improved, but did not fix,</b> CF&rarr;AF '
+    'Result (Figure 5): excluding hair <b>meaningfully improved, but did not fix,</b> CF&rarr;AF '
     'calibration. Cross-domain accuracy rose from 0.505 (chance) to 0.596, cross-domain AUC rose from '
     '0.832 to 0.867, and &mdash; the clearest sign of a real effect &mdash; the mean score for true-average AF '
     'faces dropped from 0.933 (barely distinguishable from true-pretty&rsquo;s 0.988) to 0.748 (vs. '
@@ -313,13 +322,13 @@ story.append(P(
     'faces now draw attention to the mouth/jaw region rather than the hairline or image corners seen '
     'in earlier figures &mdash; a new, as yet unexplained, observation.', body))
 
-# ---------------- Figure 2 ----------------
+# ---------------- Figure 3 ----------------
 story.append(NextPageTemplate('Full'))
 story.append(PageBreak())
 story.append(fit_image(os.path.join(FIG_DIR, 'scut_fbp_beauty_cross_race_transfer.png'),
                         5.6 * inch, 8.6 * inch))
 story.append(P(
-    '<b>Figure 2.</b> Cross-population transfer. Top: trained on CF, in-domain (blue) vs. cross-domain '
+    '<b>Figure 3.</b> Cross-population transfer. Top: trained on CF, in-domain (blue) vs. cross-domain '
     'AF (red) ROC, with Grad-CAM on AF examples the model scores highest/lowest. Middle: trained on the '
     'full AF set, in-domain vs. cross-domain CF ROC. Bottom: trained on AF capped to CF&rsquo;s training-set '
     'size (n=750), same comparison &mdash; nearly identical to the full-AF run, ruling out sample size as '
@@ -360,7 +369,7 @@ story.append(Spacer(1, 10))
 story.append(fit_image(os.path.join(FIG_DIR, 'scut_fbp_beauty_landmark_crop_illustration.png'),
                         PAGE_W - 2 * MARGIN, 2.6 * inch))
 story.append(P(
-    '<b>Figure 3.</b> Method for &sect;4.7: original images (top) and their 86-point-landmark face crop '
+    '<b>Figure 4.</b> Method for &sect;4.7: original images (top) and their 86-point-landmark face crop '
     '(bottom), which excludes hair almost entirely except for some residual fringe/bangs leakage in a '
     'minority of hairstyles where hair hangs low over the forehead, inside the landmark bounding box.',
     caption))
@@ -370,7 +379,7 @@ story.append(PageBreak())
 story.append(fit_image(os.path.join(FIG_DIR, 'scut_fbp_beauty_cross_race_transfer_no_hair.png'),
                         6.6 * inch, 8.4 * inch))
 story.append(P(
-    '<b>Figure 4.</b> Cross-population transfer with hair excluded (&sect;4.7), same layout as Figure 2. '
+    '<b>Figure 5.</b> Cross-population transfer with hair excluded (&sect;4.7), same layout as Figure 3. '
     'Top: trained on CF, cross-domain AF AUC rises to 0.867 (from 0.832 with hair) and the '
     '&ldquo;average&rdquo;-predicted AF examples now draw Grad-CAM attention to the mouth/jaw rather than the '
     'hairline or image corners seen with hair included. Bottom: the already-good AF&rarr;CF direction is '
