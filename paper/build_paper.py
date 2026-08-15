@@ -180,6 +180,19 @@ story.append(P(
     '&mdash; a mismatch that cost us one failed run before we noticed it. Our attention-visualization '
     'method is Grad-CAM [<a href="#ref2" color="blue">2</a>], applied to the last convolutional block of '
     'a ResNet18 [<a href="#ref3" color="blue">3</a>] pretrained on ImageNet.', body))
+story.append(P(
+    'Our central empirical finding &mdash; that a model trained on SCUT-FBP5500 generalizes poorly '
+    'outside the population it was trained on &mdash; is not new. Fernandes et al. '
+    '[<a href="#ref4" color="blue">4</a>] cite prior work by Zejmo et al. '
+    '[<a href="#ref5" color="blue">5</a>] showing that beauty-prediction models trained on SCUT-FBP5500 '
+    'predict poorly on other face databases, and separately note the dataset&rsquo;s all-Asian rater pool as '
+    'a limitation for generalization, motivating their own multi-database training approach (see '
+    '&sect;6 for why this rater-pool fact also changes how our &sect;4.4&ndash;4.7 results should be read). '
+    'MEBeauty and similar more ethnically diverse beauty-rating datasets exist precisely to address this '
+    'gap. We therefore make no novelty claim for the qualitative phenomenon (poor cross-population '
+    'generalization); our contribution, such as it is, is a specific, transparently-reported audit of '
+    '<i>why</i> on this dataset and this model, tracking several candidate mechanisms to a partial answer.',
+    body))
 
 story.append(section('3. Method'))
 story.append(P(
@@ -394,6 +407,20 @@ story.append(P(
 
 story.append(section('6. Limitations and Ethical Considerations'))
 story.append(P(
+    '<b>All 5,500 images, both Caucasian and Asian subsets, were rated by the same pool of 60 Asian '
+    'raters</b> [<a href="#ref1" color="blue">1</a>, <a href="#ref4" color="blue">4</a>]. We did not know '
+    'this when we framed &sect;4.4&ndash;4.7 as a test of whether beauty judgments transfer across rater '
+    'populations; they do not test that. What they test is narrower: whether a model trained on one '
+    'photographed-face population&rsquo;s ratings (from a fixed rater culture) generalizes to another '
+    'photographed-face population&rsquo;s ratings from the <i>same</i> raters. This does not weaken the '
+    'calibration-collapse finding itself, but it means the CF&rarr;AF failure cannot be attributed to, or '
+    'used as evidence about, cross-cultural disagreement in aesthetic judgment &mdash; only to the model '
+    'failing to generalize across face populations under a fixed rater culture. It also offers an '
+    'alternative reading of our unexpectedly strong &sect;4.1 baseline: Perrett et al. (cited in '
+    '[<a href="#ref4" color="blue">4</a>]) suggest raters may show higher internal consistency judging '
+    'faces from their own population, which would inflate a model&rsquo;s apparent accuracy independent of '
+    'anything the model itself does well &mdash; a confound we did not control for.', body))
+story.append(P(
     'SCUT-FBP5500 is licensed for non-commercial research only; we did not scrape additional images '
     'and this report does not redistribute the dataset. The &ldquo;pretty vs. average&rdquo; binarization is a '
     'median split within each subset, not a claim about any individual depicted person, and the mean '
@@ -415,10 +442,16 @@ story.append(P(
     'partially useful ranking signal &mdash; and the reverse direction transfers almost perfectly. Framing '
     'artifacts, image-quality confounds, and training-set size explain none of the asymmetry; excluding '
     'hair via a facial-landmark crop explains some of it (chance-level cross-domain accuracy rises to '
-    '0.596) but leaves most of the gap (vs. 0.894 in-domain) unaccounted for. We report this as an audit '
-    'of what a plausible-looking classifier does and does not generalize, not as evidence for or against '
-    'the objectivity of beauty, and we hope the sequence of tested and partly-wrong hypotheses is at '
-    'least as useful to a reader as the ones that held up.', body))
+    '0.596) but leaves most of the gap (vs. 0.894 in-domain) unaccounted for. The qualitative headline '
+    '&mdash; SCUT-FBP5500-trained models generalize poorly outside their training population &mdash; is '
+    'already established in the literature [<a href="#ref4" color="blue">4</a>, '
+    '<a href="#ref5" color="blue">5</a>]; what we add is a specific, transparently-reported trace of '
+    'candidate mechanisms, most of which turned out not to be the answer, plus the previously '
+    'unremarked fact that our two &ldquo;populations&rdquo; share a single rater culture (&sect;6), which narrows '
+    'what the asymmetry can be taken to show. We report this as an audit of what a plausible-looking '
+    'classifier does and does not generalize, not as evidence for or against the objectivity of beauty '
+    'and not as a novel contribution to the field, and we hope the sequence of tested and partly-wrong '
+    'hypotheses is at least as useful to a reader as the ones that held up.', body))
 
 story.append(section('Acknowledgments'))
 story.append(P(
@@ -437,6 +470,14 @@ story.append(P(
 story.append(P(
     '<a name="ref3"/>[3] K. He, X. Zhang, S. Ren, and J. Sun. Deep Residual Learning for Image '
     'Recognition. <i>CVPR</i>, 2016.', ref_style))
+story.append(P(
+    '<a name="ref4"/>[4] N. Fernandes, S. Soares, and J. Arantes. Analyzing VGG-19&rsquo;s Bias in Facial '
+    'Beauty Prediction: Preference for Feminine Features. <i>International Journal of Advanced Computer '
+    'Science and Applications</i>, 15(10), 2024.', ref_style))
+story.append(P(
+    '<a name="ref5"/>[5] A. Zejmo, M. Gielert, M. Grabski, and B. Kostek. Assessing the '
+    'Attractiveness of Human Face Based on Machine Learning. <i>Procedia Computer Science</i>, '
+    '225:1019&ndash;1027, 2023.', ref_style))
 
 doc = make_doc()
 doc.build(story)
