@@ -1,0 +1,42 @@
+{
+  "age_bin_width": 5,
+  "n_cf_total": 750,
+  "n_cf_age_estimated": 750,
+  "cf_age_mean": 32.956,
+  "cf_age_std": 6.66928761812934,
+  "cf_pretty_age_mean": 29.646112600536192,
+  "cf_average_age_mean": 36.23076923076923,
+  "age_label_correlation": -0.4936481494079064,
+  "af_age_mean": 29.0015,
+  "af_age_std": 3.7647706105418957,
+  "n_matched": 452,
+  "conditions": [
+    {
+      "name": "Full CF (age-unmatched baseline)",
+      "n": 113,
+      "n_train": 525,
+      "epochs_run": 8,
+      "best_val_loss": 0.33470671035135524,
+      "accuracy": 0.8938053097345132,
+      "roc_auc": 0.9583333333333334
+    },
+    {
+      "name": "Random subsample (n=452, not age-matched)",
+      "n": 68,
+      "n_train": 316,
+      "epochs_run": 8,
+      "best_val_loss": 0.33779806134468043,
+      "accuracy": 0.9264705882352942,
+      "roc_auc": 0.9550173010380623
+    },
+    {
+      "name": "Age-matched subsample (n=452)",
+      "n": 68,
+      "n_train": 316,
+      "epochs_run": 8,
+      "best_val_loss": 0.3648845232091844,
+      "accuracy": 0.8676470588235294,
+      "roc_auc": 0.9576124567474048
+    }
+  ]
+}
