@@ -9,7 +9,6 @@ import os
 import subprocess
 import sys
 import time
-import urllib.request
 import zipfile
 
 import matplotlib
@@ -40,7 +39,7 @@ LEARNING_RATE = 1e-4
 
 TRAIN_FRAC, VAL_FRAC, TEST_FRAC = 0.7, 0.15, 0.15
 
-GENDER_CHAR, RACE_CHAR = 'f', 'w'  # filename[0]=gender ('f'/'m'), filename[2]=race ('w'=Caucasian, 'y'=Asian)
+RACE_GENDER_PREFIX = 'CF'  # filenames are named e.g. 'CF437.jpg': CF=Caucasian female, CM/AF/AM for the others
 PRETTY_PERCENTILE = 50  # median split within the subset: score above this percentile -> "pretty"
 
 DATA_ROOT = './data'
@@ -48,10 +47,7 @@ GDRIVE_FILE_ID = '1w0TorBfTIqbquQVd6k3h_77ypnrvfGwf'
 ARCHIVE_PATH = os.path.join(DATA_ROOT, 'SCUT-FBP5500_v2.1.zip')
 EXTRACT_DIR = os.path.join(DATA_ROOT, 'SCUT-FBP5500_v2')
 IMAGES_DIR = os.path.join(EXTRACT_DIR, 'Images')
-
-LABELS_BASE_URL = 'https://raw.githubusercontent.com/HCIILAB/SCUT-FBP5500-Database-Release/master/data/1/'
-TRAIN_LABELS_PATH = os.path.join(DATA_ROOT, 'scut_fbp5500_train_1.txt')
-TEST_LABELS_PATH = os.path.join(DATA_ROOT, 'scut_fbp5500_test_1.txt')
+ALL_LABELS_PATH = os.path.join(EXTRACT_DIR, 'train_test_files', 'All_labels.txt')
 
 IMAGENET_MEAN = [0.485, 0.456, 0.406]
 IMAGENET_STD = [0.229, 0.224, 0.225]
@@ -90,27 +86,23 @@ def ensure_dataset():
         raise RuntimeError(f'Extraction finished but {IMAGES_DIR} was not found; the archive layout may have changed.')
 
 
-def ensure_labels():
-    """Download the official train_1.txt/test_1.txt score files ('filename score', scores in [1, 5])."""
-    for url_name, local_path in [('train_1.txt', TRAIN_LABELS_PATH), ('test_1.txt', TEST_LABELS_PATH)]:
-        if not os.path.isfile(local_path):
-            urllib.request.urlretrieve(LABELS_BASE_URL + url_name, local_path)
-
-
 def is_target_subset(filename):
-    return filename[0] == GENDER_CHAR and filename[2] == RACE_CHAR
+    return filename.startswith(RACE_GENDER_PREFIX)
 
 
 def build_items():
-    """Returns a list of (filename, raw_score, binary_label) for the target race/gender subset."""
-    ensure_labels()
+    """Returns a list of (filename, raw_score, binary_label) for the target race/gender subset.
+
+    Reads train_test_files/All_labels.txt bundled in the archive ('filename score', scores in [1, 5],
+    mean of 60 raters per image) rather than the same-named files at the top of the GitHub repo, which
+    use an older filename scheme that doesn't match this archive's Images/ folder.
+    """
     records = []
-    for path in (TRAIN_LABELS_PATH, TEST_LABELS_PATH):
-        with open(path) as f:
-            for line in f:
-                filename, score = line.split()
-                if is_target_subset(filename):
-                    records.append((filename, float(score)))
+    with open(ALL_LABELS_PATH) as f:
+        for line in f:
+            filename, score = line.split()
+            if is_target_subset(filename):
+                records.append((filename, float(score)))
     scores = np.array([s for _, s in records])
     threshold = np.percentile(scores, PRETTY_PERCENTILE)
     return [(fn, score, int(score > threshold)) for fn, score in records], threshold
@@ -146,7 +138,7 @@ class FaceDataset(Dataset):
 ensure_dataset()
 items, score_threshold = build_items()
 labels = np.array([label for _, _, label in items])
-print(f'Subset: gender={GENDER_CHAR!r} race={RACE_CHAR!r}  n={len(items)}  '
+print(f'Subset: {RACE_GENDER_PREFIX!r}  n={len(items)}  '
       f'pretty={int(labels.sum())}  average={int((labels == 0).sum())}  score_threshold={score_threshold:.3f}')
 
 train_items, temp_items = train_test_split(items, train_size=TRAIN_FRAC, stratify=labels, random_state=0)
@@ -289,8 +281,7 @@ print('\nSaved visualization to results/scut_fbp_beauty.png')
 
 metrics = {
     'img_size': IMG_SIZE,
-    'gender': GENDER_CHAR,
-    'race': RACE_CHAR,
+    'race_gender_subset': RACE_GENDER_PREFIX,
     'pretty_percentile': PRETTY_PERCENTILE,
     'score_threshold': float(score_threshold),
     'min_epochs': MIN_EPOCHS,
