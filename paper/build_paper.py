@@ -137,7 +137,11 @@ story.append(P(
     'cropping every face to its facial-landmark bounding box to exclude hair almost entirely, after a '
     'flawed grayscale-ablation proposal was caught and corrected mid-project &mdash; raises cross-domain '
     'accuracy from 0.505 (chance) to 0.596 and AUC from 0.832 to 0.867, showing hair region was part of '
-    'the shortcut without fully explaining it. We do not claim to resolve whether beauty is objective; '
+    'the shortcut without fully explaining it. Age, estimated with an off-the-shelf model, turned out to '
+    'be the strongest single correlate found (r=&minus;0.494 with the pretty label, a 6.6-year mean gap) '
+    '&mdash; yet retraining on an age-matched subset barely changed AUC (0.958 vs. 0.958 unmatched), so '
+    'this strong data-level confound does not appear to be what the model is actually using. We do not '
+    'claim to resolve whether beauty is objective; '
     'we show that a plausible-looking, statistically stable classifier can still be poorly calibrated '
     'across populations for reasons only partly explained by any single mechanism we tested, and that '
     'most of our own hypotheses about why did not survive contact with the full dataset.', abstract_body))
@@ -348,6 +352,8 @@ table_data = [
     ['Trained AF(750), tested CF', '525', '0.920 / 0.983', '0.815 / 0.909', 'rules out data volume (§4.5)'],
     ['Trained CF, tested AF (no hair)', '525', '0.894 / 0.971', '0.596 / 0.867', 'hair partly explains it (§4.7)'],
     ['Trained AF, tested CF (no hair)', '1400', '0.867 / 0.936', '0.820 / 0.921', 'unaffected by crop (§4.7)'],
+    ['CF random subsample (n=452)', '316', '0.926 / 0.955', 'n/a', 'sample-size control (§4.8)'],
+    ['CF age-matched subsample (n=452)', '316', '0.868 / 0.958', 'n/a', 'age barely matters (§4.8)'],
 ]
 tbl = Table(table_data, colWidths=[1.7 * inch, 0.7 * inch, 1.35 * inch, 1.35 * inch, 1.6 * inch])
 tbl.setStyle(TableStyle([
@@ -387,6 +393,48 @@ story.append(P(
 story.append(NextPageTemplate('TwoCol'))
 story.append(PageBreak())
 
+story.append(subsection('4.8 Age: The Strongest Confound Found, With a Twist'))
+story.append(P(
+    'Age was flagged twice earlier (the hairline/forehead Grad-CAM signal in &sect;4.3; visibly older '
+    'faces among random &ldquo;average&rdquo; examples in early qualitative checks) but never measured. We '
+    'estimated age for every CF and AF image with an off-the-shelf age model, DeepFace '
+    '[<a href="#ref6" color="blue">6</a>], then built an age-matched subset (equal pretty/average counts '
+    'within each 5-year age bin, so the two label groups share an age distribution by construction) and '
+    'retrained the baseline recipe on it, alongside a same-size random (not age-matched) control.', body))
+story.append(P(
+    'Age turned out to be by far the strongest single correlate we measured all day: r=&minus;0.494 '
+    'between age and the &ldquo;pretty&rdquo; label (CF &ldquo;pretty&rdquo; faces average 29.6 years vs. '
+    '&ldquo;average&rdquo; faces at 36.2 &mdash; a 6.6-year gap), dwarfing sharpness (r=0.20), saturation '
+    '(r=&minus;0.12), and brightness (r=0.09) from &sect;4.2. AF is also both younger (mean 29.0y) and far '
+    'more age-homogeneous (std 3.8y) than CF (mean 33.0y, std 6.7y) &mdash; a plausible additional piece of '
+    'the CF&rarr;AF calibration story from &sect;4.4: a &ldquo;younger=pretty&rdquo; cue learned across CF&rsquo;s wide age '
+    'range would have little room to discriminate within AF&rsquo;s narrow one. We did not test this '
+    'directly with an age-matched cross-population retrain, so it remains a plausible reading rather '
+    'than a demonstrated one.', body))
+story.append(P(
+    'The twist (Figure 6): despite that strong correlation, age-matched retraining barely moved the '
+    'model. ROC AUC was 0.958 for the full baseline, 0.955 for the same-size random-subsample control, '
+    'and 0.958 for the age-matched subset &mdash; essentially identical. Accuracy dropped modestly (0.894 '
+    '&rarr; 0.868) but within the noise of a 68-image test set, and not clearly below the random '
+    'control&rsquo;s 0.926. So age is a real, strong pattern in the underlying <i>human ratings</i> &mdash; '
+    'younger CF faces genuinely were rated more attractive on average by this rater pool &mdash; but the '
+    '<i>model</i> does not appear to be leaning on it much: it keeps most of its discriminative power even '
+    'when age can&rsquo;t be used as a shortcut. This is the clearest instance in this report of a '
+    'candidate confound that is unambiguously real in the data without turning out to be what the '
+    'classifier is actually doing.', body))
+
+story.append(NextPageTemplate('Full'))
+story.append(PageBreak())
+story.append(fit_image(os.path.join(FIG_DIR, 'scut_fbp_beauty_age_control.png'), 7.0 * inch, 6.6 * inch))
+story.append(P(
+    '<b>Figure 6.</b> Age-controlled ablation (&sect;4.8). Top: CF age distribution by label before '
+    'matching (6.6-year gap between means). Middle: after age-matching (means within 0.4 years, '
+    'n=452). Bottom: accuracy/AUC for the full baseline vs. a same-size random subsample vs. the '
+    'age-matched subsample &mdash; AUC is essentially unchanged across all three despite the large age '
+    'gap being fully controlled for in the third condition.', caption))
+story.append(NextPageTemplate('TwoCol'))
+story.append(PageBreak())
+
 # ---------------- 5. Discussion ----------------
 story.append(section('5. Discussion'))
 story.append(P(
@@ -396,21 +444,29 @@ story.append(P(
     'CF&rarr;AF direction losing calibration (while keeping a well-above-chance AUC) argues against '
     '&ldquo;the learned signal is a population-independent, objective beauty detector&rdquo; in any strong sense '
     '&mdash; if it were, both directions should transfer symmetrically. The asymmetry itself is the most '
-    'interesting finding in this report. Of the mechanisms we tested, framing, image quality, and '
-    'sample size explain none of it; hair region (&sect;4.7) explains some of it (cross-domain accuracy '
-    'rose 9 points once hair was excluded) but far from all of it (0.596 cross-domain vs. 0.894 '
-    'in-domain remains a large gap). The residual gap, and the new mouth/jaw Grad-CAM signal that '
-    'appeared once hair was removed, are unexplained and would be the natural next thing to chase.', body))
+    'interesting finding in this report. Of the mechanisms we tested, framing and sample size explain '
+    'none of it; hair region (&sect;4.7) explains some of it (cross-domain accuracy rose 9 points once '
+    'hair was excluded) but far from all of it (0.596 cross-domain vs. 0.894 in-domain remains a large '
+    'gap). Age (&sect;4.8) is a plausible contributor to the asymmetry specifically &mdash; AF is both '
+    'younger and far more age-homogeneous than CF, so a &ldquo;younger=pretty&rdquo; cue learned on CF would have '
+    'little room to discriminate within AF &mdash; but we did not test this directly, and it sits '
+    'awkwardly next to age-matching barely denting the CF-only baseline&rsquo;s AUC. The residual gap, and '
+    'the new mouth/jaw Grad-CAM signal that appeared once hair was removed, remain unexplained and would '
+    'be the natural next thing to chase.', body))
 story.append(P(
     'A methodological point we think is worth stating plainly: two of our own hypotheses (the '
     'oval-crop framing artifact in &sect;4.2, and the coarse-proxy version of the hair-color hypothesis in '
     '&sect;4.6) looked convincing or conclusive from a small number of examples or a crude summary '
     'statistic, and were each contradicted by a more careful check &mdash; the framing artifact did not '
     'survive being checked against the full population, and the hair hypothesis&rsquo;s regional-average '
-    'proxy missed an effect that a direct crop-and-retrain ablation later confirmed was real. A third '
-    'proposed check (grayscale ablation) was conceptually wrong and was caught only because a '
-    'collaborator asked &ldquo;what do I miss?&rdquo; instead of accepting the plan. We think this is a fair '
-    'representation of what interpretability work on small models often looks like in practice: '
+    'proxy missed an effect that a direct crop-and-retrain ablation later confirmed was real. Age '
+    '(&sect;4.8) cuts the opposite way: the naive proxy (a simple correlation) was the strongest signal '
+    'of the whole report, and it was the <i>controlled retrain</i> that revealed it wasn&rsquo;t what the '
+    'model actually relies on &mdash; a reminder that neither a correlation nor a small example set is a '
+    'substitute for actually testing the mechanism. A third proposed check (grayscale ablation) was '
+    'conceptually wrong and was caught only because a collaborator asked &ldquo;what do I miss?&rdquo; instead of '
+    'accepting the plan. We think this is a fair representation of what interpretability work on small '
+    'models often looks like in practice: '
     'plausible-looking proxies can point the wrong way in either direction, and checking a hypothesis '
     'with the most direct available test (or getting a second opinion) is not optional.', body))
 
@@ -442,7 +498,11 @@ story.append(P(
     'subset); we make no claim that these findings generalize to other architectures, larger datasets, '
     'or other populations. The result figures in this report, including face thumbnails, are published '
     'in the same public GitHub repository as the code that produced them, a choice made and discussed '
-    'explicitly with the corresponding author given the dataset&rsquo;s license terms.', body))
+    'explicitly with the corresponding author given the dataset&rsquo;s license terms. The &sect;4.8 age '
+    'estimates come from an off-the-shelf model with its own error and bias (typical published mean '
+    'absolute error on benchmark datasets is several years); we did not validate it against human-labeled '
+    'ages for this specific dataset, so the age-matching in &sect;4.8 is only as good as that model&rsquo;s '
+    'accuracy.', body))
 
 story.append(section('7. Conclusion'))
 story.append(P(
@@ -451,7 +511,11 @@ story.append(P(
     'partially useful ranking signal &mdash; and the reverse direction transfers almost perfectly. Framing '
     'artifacts, image-quality confounds, and training-set size explain none of the asymmetry; excluding '
     'hair via a facial-landmark crop explains some of it (chance-level cross-domain accuracy rises to '
-    '0.596) but leaves most of the gap (vs. 0.894 in-domain) unaccounted for. The qualitative headline '
+    '0.596) but leaves most of the gap (vs. 0.894 in-domain) unaccounted for. Age turned out to be the '
+    'strongest correlate with the label of anything we measured (r=&minus;0.494), and AF&rsquo;s narrower, '
+    'younger age distribution than CF&rsquo;s is a plausible untested contributor to the asymmetry &mdash; but '
+    'an age-matched retrain of the CF-only baseline barely changed its AUC, so this strong pattern in '
+    'the human ratings does not appear to be a strong lever in the model itself. The qualitative headline '
     '&mdash; SCUT-FBP5500-trained models generalize poorly outside their training population &mdash; is '
     'already established in the literature [<a href="#ref4" color="blue">4</a>, '
     '<a href="#ref5" color="blue">5</a>]; what we add is a specific, transparently-reported trace of '
@@ -487,6 +551,10 @@ story.append(P(
     '<a name="ref5"/>[5] A. Zejmo, M. Gielert, M. Grabski, and B. Kostek. Assessing the '
     'Attractiveness of Human Face Based on Machine Learning. <i>Procedia Computer Science</i>, '
     '225:1019&ndash;1027, 2023.', ref_style))
+story.append(P(
+    '<a name="ref6"/>[6] S. I. Serengil and A. Ozpinar. HyperExtended LightFace: A Facial Attribute '
+    'Analysis Framework. <i>International Conference on Engineering and Emerging Technologies '
+    '(ICEET)</i>, 2021.', ref_style))
 
 doc = make_doc()
 doc.build(story)
