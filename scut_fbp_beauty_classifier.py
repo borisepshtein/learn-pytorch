@@ -237,11 +237,41 @@ print(f'False Positives: {fp}/{total_neg}   False Negatives: {fn}/{total_pos}')
 print(f'Mean predicted beauty score  pretty={mean_score_pretty:.3f}  average={mean_score_average:.3f}')
 print(f'ROC AUC: {roc_auc:.3f}')
 
-# --- Visualization: loss curves, example faces by predicted score, ROC curve ---
+# --- Grad-CAM: where in the face does the model's prediction come from? ---
+def gradcam_heatmap(target_layer, input_tensor):
+    """Grad-CAM heatmap (IMG_SIZE, IMG_SIZE) in [0, 1] for the model's single logit output."""
+    activations, gradients = {}, {}
+
+    def forward_hook(module, inp, out):
+        activations['value'] = out
+
+    def backward_hook(module, grad_in, grad_out):
+        gradients['value'] = grad_out[0]
+
+    h_fwd = target_layer.register_forward_hook(forward_hook)
+    h_bwd = target_layer.register_full_backward_hook(backward_hook)
+    model.zero_grad()
+    output = model(input_tensor.unsqueeze(0).to(device)).squeeze()
+    output.backward()
+    h_fwd.remove()
+    h_bwd.remove()
+
+    acts = activations['value'][0]
+    grads = gradients['value'][0]
+    weights = grads.mean(dim=(1, 2))
+    cam = torch.relu((weights[:, None, None] * acts).sum(dim=0))
+    cam = (cam / (cam.max() + 1e-8)).detach().cpu().numpy()
+    cam_img = Image.fromarray((cam * 255).astype(np.uint8)).resize((IMG_SIZE, IMG_SIZE), Image.BILINEAR)
+    return np.array(cam_img) / 255.0
+
+
+gradcam_target_layer = model.layer4[-1]
+
+# --- Visualization: loss curves, example faces (+ Grad-CAM) by predicted score, ROC curve ---
 test_filenames = [fn for fn, _, _ in test_items]
 
-fig = plt.figure(figsize=(14, 13))
-gs = fig.add_gridspec(4, N_EXAMPLES, height_ratios=[1, 1, 1, 1.3])
+fig = plt.figure(figsize=(14, 19))
+gs = fig.add_gridspec(6, N_EXAMPLES, height_ratios=[1, 1, 1, 1, 1, 1.3])
 
 ax_loss = fig.add_subplot(gs[0, :])
 ax_loss.plot(range(1, epoch + 1), train_loss_history, label='Train loss')
@@ -254,19 +284,32 @@ ax_loss.legend(loc='upper right')
 top_idx = np.argsort(-test_probs)[:N_EXAMPLES]
 bottom_idx = np.argsort(test_probs)[:N_EXAMPLES]
 
-for row, (title, idx_list) in enumerate([('Highest predicted score', top_idx), ('Lowest predicted score', bottom_idx)]):
+for group, (title, idx_list) in enumerate([('Highest predicted score', top_idx), ('Lowest predicted score', bottom_idx)]):
+    plain_row = 1 + group * 2
+    cam_row = plain_row + 1
     for col, idx in enumerate(idx_list):
-        ax = fig.add_subplot(gs[row + 1, col])
         img = Image.open(os.path.join(IMAGES_DIR, test_filenames[idx])).convert('RGB')
-        ax.imshow(img)
+        face = np.array(img.resize((IMG_SIZE, IMG_SIZE)))
+        cam = gradcam_heatmap(gradcam_target_layer, eval_transform(img))
+        true_label = 'pretty' if test_labels[idx] == 1 else 'average'
+
+        ax = fig.add_subplot(gs[plain_row, col])
+        ax.imshow(face)
         ax.set_xticks([])
         ax.set_yticks([])
-        true_label = 'pretty' if test_labels[idx] == 1 else 'average'
         ax.set_title(f'{test_probs[idx]:.2f} ({true_label})', fontsize=8)
         if col == 0:
             ax.set_ylabel(title, fontsize=9, rotation=0, ha='right', va='center')
 
-ax_roc = fig.add_subplot(gs[3, :])
+        ax_cam = fig.add_subplot(gs[cam_row, col])
+        ax_cam.imshow(face)
+        ax_cam.imshow(cam, cmap='jet', alpha=0.45)
+        ax_cam.set_xticks([])
+        ax_cam.set_yticks([])
+        if col == 0:
+            ax_cam.set_ylabel('Grad-CAM', fontsize=9, rotation=0, ha='right', va='center')
+
+ax_roc = fig.add_subplot(gs[5, :])
 ax_roc.plot(fpr, tpr, color='tab:blue', label=f'ROC curve (AUC = {roc_auc:.3f})')
 ax_roc.plot([0, 1], [0, 1], color='gray', linestyle='--', linewidth=0.8, label='Chance')
 ax_roc.set_xlabel('False positive rate')
