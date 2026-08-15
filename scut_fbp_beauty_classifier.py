@@ -20,7 +20,7 @@ import torch.nn as nn
 import torch.optim as optim
 from PIL import Image
 from sklearn.metrics import auc, roc_curve
-from sklearn.model_selection import train_test_split
+from sklearn.model_selection import StratifiedKFold, train_test_split
 from torch.utils.data import DataLoader, Dataset
 from torchvision import transforms
 from torchvision.models import ResNet18_Weights, resnet18
@@ -37,7 +37,8 @@ PATIENCE = 5  # epochs to wait for a significant val-loss improvement before sto
 MIN_REL_IMPROVEMENT = 0.01  # val loss must drop by at least 1% to count as improvement
 LEARNING_RATE = 1e-4
 
-TRAIN_FRAC, VAL_FRAC, TEST_FRAC = 0.7, 0.15, 0.15
+N_FOLDS = 5
+VAL_FRAC_OF_TRAIN = 0.15  # carved out of each fold's training portion for early stopping
 
 RACE_GENDER_PREFIX = 'CF'  # filenames are named e.g. 'CF437.jpg': CF=Caucasian female, CM/AF/AM for the others
 PRETTY_PERCENTILE = 50  # median split within the subset: score above this percentile -> "pretty"
@@ -135,110 +136,75 @@ class FaceDataset(Dataset):
         return self.transform(img), float(label)
 
 
-ensure_dataset()
-items, score_threshold = build_items()
-labels = np.array([label for _, _, label in items])
-print(f'Subset: {RACE_GENDER_PREFIX!r}  n={len(items)}  '
-      f'pretty={int(labels.sum())}  average={int((labels == 0).sum())}  score_threshold={score_threshold:.3f}')
+def train_fold(train_items, val_items):
+    """Fine-tunes a fresh pretrained ResNet18 with early stopping on this fold's train/val split."""
+    train_loader = DataLoader(FaceDataset(train_items, train_transform), batch_size=BATCH_SIZE, shuffle=True)
+    val_loader = DataLoader(FaceDataset(val_items, eval_transform), batch_size=BATCH_SIZE, shuffle=False)
 
-train_items, temp_items = train_test_split(items, train_size=TRAIN_FRAC, stratify=labels, random_state=0)
-temp_labels = np.array([label for _, _, label in temp_items])
-val_items, test_items = train_test_split(
-    temp_items, train_size=VAL_FRAC / (VAL_FRAC + TEST_FRAC), stratify=temp_labels, random_state=0)
-print(f'Train: {len(train_items)}  Val: {len(val_items)}  Test: {len(test_items)}')
+    model = resnet18(weights=ResNet18_Weights.IMAGENET1K_V1)
+    model.fc = nn.Linear(model.fc.in_features, 1)
+    model = model.to(device)
+    optimizer = optim.Adam(model.parameters(), lr=LEARNING_RATE)
+    criterion = nn.BCEWithLogitsLoss()
 
-train_loader = DataLoader(FaceDataset(train_items, train_transform), batch_size=BATCH_SIZE, shuffle=True)
-val_loader = DataLoader(FaceDataset(val_items, eval_transform), batch_size=BATCH_SIZE, shuffle=False)
-test_loader = DataLoader(FaceDataset(test_items, eval_transform), batch_size=BATCH_SIZE, shuffle=False)
+    best_val_loss = float('inf')
+    best_state = None
+    epochs_without_improvement = 0
+    epoch = 0
+    train_loss_history, val_loss_history = [], []
 
-model = resnet18(weights=ResNet18_Weights.IMAGENET1K_V1)
-model.fc = nn.Linear(model.fc.in_features, 1)
-model = model.to(device)
-
-optimizer = optim.Adam(model.parameters(), lr=LEARNING_RATE)
-criterion = nn.BCEWithLogitsLoss()
-
-best_val_loss = float('inf')
-best_state = None
-epochs_without_improvement = 0
-epoch = 0
-train_loss_history, val_loss_history = [], []
-
-t0 = time.time()
-while epoch < MAX_EPOCHS:
-    epoch += 1
-    model.train()
-    running_loss = 0.0
-    t_epoch = time.time()
-    for images, targets in train_loader:
-        images, targets = images.to(device), targets.to(device)
-        optimizer.zero_grad()
-        loss = criterion(model(images).squeeze(1), targets)
-        loss.backward()
-        optimizer.step()
-        running_loss += loss.item()
-    train_loss = running_loss / len(train_loader)
-
-    model.eval()
-    val_running_loss = 0.0
-    with torch.no_grad():
-        for images, targets in val_loader:
+    while epoch < MAX_EPOCHS:
+        epoch += 1
+        model.train()
+        running_loss = 0.0
+        for images, targets in train_loader:
             images, targets = images.to(device), targets.to(device)
-            val_running_loss += criterion(model(images).squeeze(1), targets).item()
-    val_loss = val_running_loss / len(val_loader)
+            optimizer.zero_grad()
+            loss = criterion(model(images).squeeze(1), targets)
+            loss.backward()
+            optimizer.step()
+            running_loss += loss.item()
+        train_loss = running_loss / len(train_loader)
 
-    train_loss_history.append(train_loss)
-    val_loss_history.append(val_loss)
-    print(f'Epoch {epoch}/{MAX_EPOCHS}  train loss: {train_loss:.4f}  val loss: {val_loss:.4f}  '
-          f'({time.time() - t_epoch:.1f}s)')
+        model.eval()
+        val_running_loss = 0.0
+        with torch.no_grad():
+            for images, targets in val_loader:
+                images, targets = images.to(device), targets.to(device)
+                val_running_loss += criterion(model(images).squeeze(1), targets).item()
+        val_loss = val_running_loss / len(val_loader)
 
-    if val_loss < best_val_loss * (1 - MIN_REL_IMPROVEMENT):
-        best_val_loss = val_loss
-        best_state = {k: v.detach().clone() for k, v in model.state_dict().items()}
-        epochs_without_improvement = 0
-    else:
-        epochs_without_improvement += 1
+        train_loss_history.append(train_loss)
+        val_loss_history.append(val_loss)
 
-    if epoch >= MIN_EPOCHS and epochs_without_improvement >= PATIENCE:
-        print(f'Early stopping at epoch {epoch}: val loss has not improved by >={MIN_REL_IMPROVEMENT:.0%} '
-              f'for {PATIENCE} epochs')
-        break
+        if val_loss < best_val_loss * (1 - MIN_REL_IMPROVEMENT):
+            best_val_loss = val_loss
+            best_state = {k: v.detach().clone() for k, v in model.state_dict().items()}
+            epochs_without_improvement = 0
+        else:
+            epochs_without_improvement += 1
 
-model.load_state_dict(best_state)
-print(f'Total training time: {time.time() - t0:.1f}s  ({epoch} epochs run, best val loss {best_val_loss:.4f})')
+        if epoch >= MIN_EPOCHS and epochs_without_improvement >= PATIENCE:
+            break
 
-# --- Evaluation: sigmoid confidence doubles as the "beauty score" ---
-model.eval()
-test_probs, test_labels = [], []
-with torch.no_grad():
-    for images, targets in test_loader:
-        images = images.to(device)
-        probs = torch.sigmoid(model(images).squeeze(1))
-        test_probs.append(probs.cpu())
-        test_labels.append(targets)
-test_probs = torch.cat(test_probs).numpy()
-test_labels = torch.cat(test_labels).numpy().astype(int)
-test_preds = test_probs > 0.5
+    model.load_state_dict(best_state)
+    return model, train_loss_history, val_loss_history, epoch, best_val_loss
 
-accuracy = float((test_preds == test_labels).mean())
-total_pos = int(test_labels.sum())
-total_neg = int((test_labels == 0).sum())
-fp = int((test_preds & (test_labels == 0)).sum())
-fn = int((~test_preds & (test_labels == 1)).sum())
 
-fpr, tpr, _ = roc_curve(test_labels, test_probs)
-roc_auc = auc(fpr, tpr)
+def evaluate(model, test_items):
+    """Sigmoid confidence doubles as the 'beauty score'."""
+    test_loader = DataLoader(FaceDataset(test_items, eval_transform), batch_size=BATCH_SIZE, shuffle=False)
+    model.eval()
+    probs, labels = [], []
+    with torch.no_grad():
+        for images, targets in test_loader:
+            images = images.to(device)
+            probs.append(torch.sigmoid(model(images).squeeze(1)).cpu())
+            labels.append(targets)
+    return torch.cat(probs).numpy(), torch.cat(labels).numpy().astype(int)
 
-mean_score_pretty = float(test_probs[test_labels == 1].mean())
-mean_score_average = float(test_probs[test_labels == 0].mean())
 
-print(f'\nTest accuracy: {accuracy:.3f}  (n={len(test_labels)}, positives={total_pos}, negatives={total_neg})')
-print(f'False Positives: {fp}/{total_neg}   False Negatives: {fn}/{total_pos}')
-print(f'Mean predicted beauty score  pretty={mean_score_pretty:.3f}  average={mean_score_average:.3f}')
-print(f'ROC AUC: {roc_auc:.3f}')
-
-# --- Grad-CAM: where in the face does the model's prediction come from? ---
-def gradcam_heatmap(target_layer, input_tensor):
+def gradcam_heatmap(model, target_layer, input_tensor):
     """Grad-CAM heatmap (IMG_SIZE, IMG_SIZE) in [0, 1] for the model's single logit output."""
     activations, gradients = {}, {}
 
@@ -265,20 +231,82 @@ def gradcam_heatmap(target_layer, input_tensor):
     return np.array(cam_img) / 255.0
 
 
-gradcam_target_layer = model.layer4[-1]
+ensure_dataset()
+items, score_threshold = build_items()
+labels = np.array([label for _, _, label in items])
+print(f'Subset: {RACE_GENDER_PREFIX!r}  n={len(items)}  '
+      f'pretty={int(labels.sum())}  average={int((labels == 0).sum())}  score_threshold={score_threshold:.3f}')
 
-# --- Visualization: loss curves, example faces (+ Grad-CAM) by predicted score, ROC curve ---
-test_filenames = [fn for fn, _, _ in test_items]
+# --- 5-fold stratified CV: is a single random split's accuracy/AUC stable, or a fluke of that split? ---
+skf = StratifiedKFold(n_splits=N_FOLDS, shuffle=True, random_state=0)
+fold_results = []
+primary = None  # fold 1's model/predictions, reused below for the qualitative Grad-CAM figure
 
-fig = plt.figure(figsize=(14, 19))
-gs = fig.add_gridspec(6, N_EXAMPLES, height_ratios=[1, 1, 1, 1, 1, 1.3])
+t_cv = time.time()
+for fold_idx, (train_val_idx, test_idx) in enumerate(skf.split(items, labels)):
+    train_val_items = [items[i] for i in train_val_idx]
+    train_val_labels = labels[train_val_idx]
+    test_items = [items[i] for i in test_idx]
+    train_items, val_items = train_test_split(
+        train_val_items, test_size=VAL_FRAC_OF_TRAIN, stratify=train_val_labels, random_state=0)
+
+    print(f'\n=== Fold {fold_idx + 1}/{N_FOLDS} ===  train={len(train_items)}  val={len(val_items)}  test={len(test_items)}')
+    t0 = time.time()
+    model, train_hist, val_hist, epochs_run, best_val_loss = train_fold(train_items, val_items)
+    test_probs, test_labels = evaluate(model, test_items)
+    test_preds = test_probs > 0.5
+
+    accuracy = float((test_preds == test_labels).mean())
+    total_pos = int(test_labels.sum())
+    total_neg = int((test_labels == 0).sum())
+    fp = int((test_preds & (test_labels == 0)).sum())
+    fn = int((~test_preds & (test_labels == 1)).sum())
+    fpr, tpr, _ = roc_curve(test_labels, test_probs)
+    roc_auc = float(auc(fpr, tpr))
+    mean_score_pretty = float(test_probs[test_labels == 1].mean())
+    mean_score_average = float(test_probs[test_labels == 0].mean())
+
+    print(f'  {epochs_run} epochs, best val loss {best_val_loss:.4f}  ({time.time() - t0:.1f}s)  '
+          f'accuracy={accuracy:.3f}  roc_auc={roc_auc:.3f}')
+
+    fold_results.append({
+        'fold': fold_idx + 1,
+        'n_train': len(train_items), 'n_val': len(val_items), 'n_test': len(test_items),
+        'epochs_run': epochs_run, 'best_val_loss': float(best_val_loss),
+        'test_accuracy': accuracy, 'roc_auc': roc_auc,
+        'test_positives': total_pos, 'test_negatives': total_neg,
+        'false_positives': fp, 'false_negatives': fn,
+        'mean_score_pretty': mean_score_pretty, 'mean_score_average': mean_score_average,
+        'fpr': fpr.tolist(), 'tpr': tpr.tolist(),
+    })
+
+    if fold_idx == 0:
+        primary = {
+            'model': model, 'train_hist': train_hist, 'val_hist': val_hist, 'epochs_run': epochs_run,
+            'test_items': test_items, 'test_probs': test_probs, 'test_labels': test_labels,
+        }
+
+print(f'\nTotal CV time: {time.time() - t_cv:.1f}s')
+
+accuracies = np.array([r['test_accuracy'] for r in fold_results])
+aucs = np.array([r['roc_auc'] for r in fold_results])
+print(f'\n{N_FOLDS}-fold CV  accuracy = {accuracies.mean():.3f} +/- {accuracies.std():.3f}   '
+      f'roc_auc = {aucs.mean():.3f} +/- {aucs.std():.3f}')
+
+# --- Visualization: fold-1 loss curve + example faces + Grad-CAM, all-folds ROC overlay, per-fold bar chart ---
+gradcam_target_layer = primary['model'].layer4[-1]
+test_filenames = [fn for fn, _, _ in primary['test_items']]
+test_probs, test_labels = primary['test_probs'], primary['test_labels']
+
+fig = plt.figure(figsize=(14, 21))
+gs = fig.add_gridspec(7, N_EXAMPLES, height_ratios=[1, 1, 1, 1, 1, 1.3, 1])
 
 ax_loss = fig.add_subplot(gs[0, :])
-ax_loss.plot(range(1, epoch + 1), train_loss_history, label='Train loss')
-ax_loss.plot(range(1, epoch + 1), val_loss_history, label='Val loss')
+ax_loss.plot(range(1, primary['epochs_run'] + 1), primary['train_hist'], label='Train loss')
+ax_loss.plot(range(1, primary['epochs_run'] + 1), primary['val_hist'], label='Val loss')
 ax_loss.set_xlabel('Epoch')
 ax_loss.set_ylabel('BCE loss')
-ax_loss.set_title('Training curve')
+ax_loss.set_title('Training curve (fold 1)')
 ax_loss.legend(loc='upper right')
 
 top_idx = np.argsort(-test_probs)[:N_EXAMPLES]
@@ -290,7 +318,7 @@ for group, (title, idx_list) in enumerate([('Highest predicted score', top_idx),
     for col, idx in enumerate(idx_list):
         img = Image.open(os.path.join(IMAGES_DIR, test_filenames[idx])).convert('RGB')
         face = np.array(img.resize((IMG_SIZE, IMG_SIZE)))
-        cam = gradcam_heatmap(gradcam_target_layer, eval_transform(img))
+        cam = gradcam_heatmap(primary['model'], gradcam_target_layer, eval_transform(img))
         true_label = 'pretty' if test_labels[idx] == 1 else 'average'
 
         ax = fig.add_subplot(gs[plain_row, col])
@@ -310,12 +338,27 @@ for group, (title, idx_list) in enumerate([('Highest predicted score', top_idx),
             ax_cam.set_ylabel('Grad-CAM', fontsize=9, rotation=0, ha='right', va='center')
 
 ax_roc = fig.add_subplot(gs[5, :])
-ax_roc.plot(fpr, tpr, color='tab:blue', label=f'ROC curve (AUC = {roc_auc:.3f})')
+for r in fold_results:
+    ax_roc.plot(r['fpr'], r['tpr'], linewidth=1, alpha=0.8, label=f"Fold {r['fold']} (AUC={r['roc_auc']:.3f})")
 ax_roc.plot([0, 1], [0, 1], color='gray', linestyle='--', linewidth=0.8, label='Chance')
 ax_roc.set_xlabel('False positive rate')
 ax_roc.set_ylabel('True positive rate')
-ax_roc.set_title('Pretty vs. average classification ROC (SCUT-FBP5500, Caucasian female)')
-ax_roc.legend(loc='lower right')
+ax_roc.set_title(f'{N_FOLDS}-fold ROC (SCUT-FBP5500, Caucasian female)  '
+                  f'mean AUC = {aucs.mean():.3f} +/- {aucs.std():.3f}')
+ax_roc.legend(loc='lower right', fontsize=8)
+
+ax_bar = fig.add_subplot(gs[6, :])
+x = np.arange(N_FOLDS)
+width = 0.35
+ax_bar.bar(x - width / 2, accuracies, width, label='Accuracy', color='tab:blue')
+ax_bar.bar(x + width / 2, aucs, width, label='ROC AUC', color='tab:orange')
+ax_bar.axhline(accuracies.mean(), color='tab:blue', linestyle=':', linewidth=1)
+ax_bar.axhline(aucs.mean(), color='tab:orange', linestyle=':', linewidth=1)
+ax_bar.set_xticks(x)
+ax_bar.set_xticklabels([f'Fold {i + 1}' for i in range(N_FOLDS)])
+ax_bar.set_ylim(0, 1.05)
+ax_bar.set_title('Per-fold accuracy / ROC AUC (dotted = mean across folds)')
+ax_bar.legend(loc='lower right')
 
 fig.tight_layout()
 os.makedirs('results', exist_ok=True)
@@ -330,19 +373,12 @@ metrics = {
     'min_epochs': MIN_EPOCHS,
     'max_epochs': MAX_EPOCHS,
     'patience': PATIENCE,
-    'epochs_run': epoch,
-    'best_val_loss': float(best_val_loss),
-    'n_train': len(train_items),
-    'n_val': len(val_items),
-    'n_test': len(test_items),
-    'test_accuracy': accuracy,
-    'test_positives': total_pos,
-    'test_negatives': total_neg,
-    'false_positives': fp,
-    'false_negatives': fn,
-    'mean_score_pretty': mean_score_pretty,
-    'mean_score_average': mean_score_average,
-    'roc_auc': float(roc_auc),
+    'n_folds': N_FOLDS,
+    'accuracy_mean': float(accuracies.mean()),
+    'accuracy_std': float(accuracies.std()),
+    'roc_auc_mean': float(aucs.mean()),
+    'roc_auc_std': float(aucs.std()),
+    'fold_metrics': [{k: v for k, v in r.items() if k not in ('fpr', 'tpr')} for r in fold_results],
 }
 with open('results/scut_fbp_beauty_metrics.json', 'w') as f:
     json.dump(metrics, f, indent=2)
