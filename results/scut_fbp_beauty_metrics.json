@@ -7,7 +7,7 @@
   "max_epochs": 40,
   "patience": 5,
   "epochs_run": 8,
-  "best_val_loss": 0.3346569665460777,
+  "best_val_loss": 0.33395586008040823,
   "n_train": 525,
   "n_val": 112,
   "n_test": 113,
@@ -16,7 +16,7 @@
   "test_negatives": 57,
   "false_positives": 4,
   "false_negatives": 8,
-  "mean_score_pretty": 0.8149434328079224,
-  "mean_score_average": 0.10702672600746155,
-  "roc_auc": 0.9595864661654135
+  "mean_score_pretty": 0.8157402276992798,
+  "mean_score_average": 0.10793990641832352,
+  "roc_auc": 0.9589598997493735
 }
