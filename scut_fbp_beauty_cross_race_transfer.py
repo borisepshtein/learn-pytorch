@@ -6,7 +6,9 @@ and cross-domain (the full Asian-female subset, labeled by ITS OWN median split)
 repeats in the opposite direction (train on AF, test on CF). If beauty judgments were purely
 a within-population/cultural construct, cross-domain performance should collapse toward
 chance; if the same 60 SCUT raters' judgments rest on visual cues that hold up across race,
-cross-domain AUC should stay well above 0.5.
+cross-domain AUC should stay well above 0.5. Also runs a third, controlled config: AF capped
+to CF's own subset size, to check whether an asymmetric transfer result is really about race
+or just about which source population happened to have more training data.
 
 Dataset: SCUT-FBP5500 (HCIILAB), non-commercial research use only.
 https://github.com/HCIILAB/SCUT-FBP5500-Database-Release
@@ -48,7 +50,15 @@ LEARNING_RATE = 1e-4
 TRAIN_FRAC, VAL_FRAC, TEST_FRAC = 0.7, 0.15, 0.15
 PRETTY_PERCENTILE = 50
 
-TRANSFER_PAIRS = [('CF', 'AF'), ('AF', 'CF')]  # (source: trained on, target: cross-domain test)
+TRANSFER_CONFIGS = [
+    {'source': 'CF', 'source_n': None, 'target': 'AF'},
+    {'source': 'AF', 'source_n': None, 'target': 'CF'},
+    # Controlled comparison: cap AF at CF's total subset size (750) so the same 70/15/15 split
+    # gives both an identical ~525-image training set. If the AF(2000) -> CF transfer above was
+    # mostly about AF having ~2.7x more training data, this downsampled run should degrade toward
+    # the CF(750) -> AF result; if it doesn't, the asymmetry isn't just a sample-size artifact.
+    {'source': 'AF', 'source_n': 750, 'target': 'CF'},
+]
 
 DATA_ROOT = './data'
 GDRIVE_FILE_ID = '1w0TorBfTIqbquQVd6k3h_77ypnrvfGwf'
@@ -93,9 +103,10 @@ def ensure_dataset():
         raise RuntimeError(f'Extraction finished but {IMAGES_DIR} was not found; the archive layout may have changed.')
 
 
-def build_items(prefix):
+def build_items(prefix, max_n=None):
     """Returns a list of (filename, raw_score, binary_label) for the given 2-letter race/gender prefix
-    (CF/CM/AF/AM), median-split on that subset's own score distribution."""
+    (CF/CM/AF/AM), median-split on that subset's own FULL score distribution (max_n never affects the
+    threshold, only how many items are kept -- a stratified random subsample if the full subset is larger)."""
     records = []
     with open(ALL_LABELS_PATH) as f:
         for line in f:
@@ -104,7 +115,11 @@ def build_items(prefix):
                 records.append((filename, float(score)))
     scores = np.array([s for _, s in records])
     threshold = np.percentile(scores, PRETTY_PERCENTILE)
-    return [(fn, score, int(score > threshold)) for fn, score in records], threshold
+    items = [(fn, score, int(score > threshold)) for fn, score in records]
+    if max_n is not None and max_n < len(items):
+        item_labels = np.array([label for _, _, label in items])
+        items, _ = train_test_split(items, train_size=max_n, stratify=item_labels, random_state=0)
+    return items, threshold
 
 
 eval_transform = transforms.Compose([
@@ -232,12 +247,14 @@ def gradcam_heatmap(model, target_layer, input_tensor):
 ensure_dataset()
 
 direction_results = []
-for source, target in TRANSFER_PAIRS:
-    print(f'\n=== Train on {source}, evaluate in-domain ({source}) + cross-domain ({target}) ===')
-    source_items, source_threshold = build_items(source)
+for config in TRANSFER_CONFIGS:
+    source, target, source_n = config['source'], config['target'], config['source_n']
+    source_label = f'{source}(n={source_n})' if source_n is not None else source
+    print(f'\n=== Train on {source_label}, evaluate in-domain ({source}) + cross-domain ({target}) ===')
+    source_items, source_threshold = build_items(source, max_n=source_n)
     target_items, target_threshold = build_items(target)
     source_labels = np.array([label for _, _, label in source_items])
-    print(f'{source}: n={len(source_items)}  score_threshold={source_threshold:.3f}   '
+    print(f'{source_label}: n={len(source_items)}  score_threshold={source_threshold:.3f}   '
           f'{target}: n={len(target_items)}  score_threshold={target_threshold:.3f}')
 
     train_items, temp_items = train_test_split(
@@ -245,7 +262,7 @@ for source, target in TRANSFER_PAIRS:
     temp_labels = np.array([label for _, _, label in temp_items])
     val_items, test_items = train_test_split(
         temp_items, train_size=VAL_FRAC / (VAL_FRAC + TEST_FRAC), stratify=temp_labels, random_state=0)
-    print(f'{source} train={len(train_items)}  val={len(val_items)}  in-domain test={len(test_items)}')
+    print(f'{source_label} train={len(train_items)}  val={len(val_items)}  in-domain test={len(test_items)}')
 
     t0 = time.time()
     model, epochs_run, best_val_loss = train_model(train_items, val_items)
@@ -260,7 +277,7 @@ for source, target in TRANSFER_PAIRS:
           f'accuracy={cross_metrics["accuracy"]:.3f}  roc_auc={cross_metrics["roc_auc"]:.3f}')
 
     direction_results.append({
-        'source': source, 'target': target,
+        'source': source, 'target': target, 'source_label': source_label, 'source_n': len(source_items),
         'source_score_threshold': float(source_threshold), 'target_score_threshold': float(target_threshold),
         'n_train': len(train_items), 'n_val': len(val_items),
         'epochs_run': epochs_run, 'best_val_loss': float(best_val_loss),
@@ -287,7 +304,7 @@ for d, res in enumerate(direction_results):
     ax_roc.plot([0, 1], [0, 1], color='gray', linestyle='--', linewidth=0.8, label='Chance')
     ax_roc.set_xlabel('False positive rate')
     ax_roc.set_ylabel('True positive rate')
-    ax_roc.set_title(f"Trained on {res['source']}: in-domain vs. cross-domain ({res['target']}) ROC")
+    ax_roc.set_title(f"Trained on {res['source_label']}: in-domain vs. cross-domain ({res['target']}) ROC")
     ax_roc.legend(loc='lower right', fontsize=8)
 
     cross_probs, cross_labels = res['cross_probs'], res['cross_labels']
