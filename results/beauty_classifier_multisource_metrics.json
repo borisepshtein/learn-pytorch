@@ -1,0 +1,95 @@
+{
+  "active_sources": [
+    "SCUT",
+    "CFD",
+    "London"
+  ],
+  "source_counts": {
+    "SCUT": 2750,
+    "CFD": 410,
+    "London": 49
+  },
+  "leave_one_source_out": [
+    {
+      "held_out": "SCUT",
+      "train_sources": [
+        "CFD",
+        "London"
+      ],
+      "n_train": 321,
+      "epochs_run": 8,
+      "best_val_loss": 0.702468343358487,
+      "in_domain": {
+        "n": 69,
+        "accuracy": 0.6666666666666666,
+        "roc_auc": 0.7495798319327731
+      },
+      "out_of_domain": {
+        "n": 2750,
+        "accuracy": 0.5774545454545454,
+        "roc_auc": 0.7498396019483669
+      }
+    },
+    {
+      "held_out": "CFD",
+      "train_sources": [
+        "SCUT",
+        "London"
+      ],
+      "n_train": 1959,
+      "epochs_run": 8,
+      "best_val_loss": 0.315634190772544,
+      "in_domain": {
+        "n": 420,
+        "accuracy": 0.8714285714285714,
+        "roc_auc": 0.9460305222340643
+      },
+      "out_of_domain": {
+        "n": 410,
+        "accuracy": 0.5585365853658537,
+        "roc_auc": 0.6763355145746579
+      }
+    },
+    {
+      "held_out": "London",
+      "train_sources": [
+        "SCUT",
+        "CFD"
+      ],
+      "n_train": 2212,
+      "epochs_run": 8,
+      "best_val_loss": 0.30106618478530434,
+      "in_domain": {
+        "n": 474,
+        "accuracy": 0.8523206751054853,
+        "roc_auc": 0.9398244583311078
+      },
+      "out_of_domain": {
+        "n": 49,
+        "accuracy": 0.673469387755102,
+        "roc_auc": 0.8266666666666667
+      }
+    }
+  ],
+  "final_model": {
+    "n_total": 3209,
+    "n_train": 2246,
+    "epochs_run": 8,
+    "best_val_loss": 0.26966633466560097,
+    "n": 482,
+    "accuracy": 0.8506224066390041,
+    "roc_auc": 0.9284607438016529,
+    "per_source_test": {
+      "SCUT": {
+        "n": 409,
+        "accuracy": 0.8801955990220048,
+        "roc_auc": 0.9442345401501745
+      },
+      "CFD": {
+        "n": 67,
+        "accuracy": 0.7164179104477612,
+        "roc_auc": 0.8135135135135134
+      }
+    }
+  }
+}
