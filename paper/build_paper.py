@@ -143,12 +143,14 @@ story.append(P(
     'this strong data-level confound does not appear to be what the model is actually using. Finally, '
     'adding two datasets with genuinely different rater pools (Chicago Face Database, Face Research '
     'Lab London Set) and running leave-one-source-out cross-validation, every held-out direction beats '
-    'chance (one with identical 0.750 in-/out-of-domain AUC), but calibration collapse recurs '
-    'elsewhere (accuracy as low as 0.559) and remains unsolved. We do not claim to resolve whether '
-    'beauty is objective; we show that a plausible-looking, statistically stable classifier can still '
-    'be poorly calibrated across populations for reasons only partly explained by any single mechanism '
-    'we tested, and that most of our own hypotheses about why did not survive contact with the full '
-    'dataset.', abstract_body))
+    'chance (one with identical 0.749 in-/out-of-domain AUC), but fixed-threshold accuracy lags AUC '
+    'everywhere (as low as 0.554); recalibrating each domain&rsquo;s decision threshold to its own '
+    'median predicted score (mirroring how labels are already defined) recovers real accuracy '
+    '(0.554&rarr;0.624) without fully closing the gap to in-domain performance. We do not claim to '
+    'resolve whether beauty is objective; we show that a plausible-looking, statistically stable '
+    'classifier can still be poorly calibrated across populations for reasons only partly explained '
+    'by any single mechanism we tested, and that most of our own hypotheses about why did not survive '
+    'contact with the full dataset.', abstract_body))
 
 story.append(Spacer(1, 4))
 story.append(fit_image(os.path.join(FIG_DIR, 'scut_fbp_beauty_rating_scale_examples.png'), 3.6 * inch, 2.3 * inch))
@@ -467,27 +469,27 @@ story.append(P(
 story.append(P(
     'Every held-out direction beats chance by a real margin &mdash; genuine evidence of a '
     'transferable signal across three independent rater cultures, not just across race within one '
-    'culture. The CFD+London&rarr;SCUT direction is the strongest evidence: AUC is 0.750 both '
+    'culture. The CFD+London&rarr;SCUT direction is the strongest evidence: AUC is 0.749 both '
     'in-domain and out-of-domain, meaning a model trained on only 321 images from the two smaller, '
     'more diverse sources ranks the full 2,750-image SCUT set exactly as well as it ranks its own '
-    'held-out test data. But the same calibration problem from &sect;4.4 recurs: accuracy lags AUC '
-    'out-of-domain in the other two directions, worst for SCUT+London&rarr;CFD (AUC drops from 0.946 '
-    'in-domain to 0.676 out-of-domain, accuracy to 0.559 &mdash; barely above chance). CFD is the '
-    'weak point throughout: it is both the hardest target to transfer to and, in the final combined '
-    'model, the source with the lowest per-source test AUC (0.814 vs. SCUT&rsquo;s 0.944) despite '
-    'being part of that model&rsquo;s own training data. We suspect this is related to the size '
-    'imbalance noted above &mdash; SCUT is 86% of the combined pool by volume, so the combined model '
-    'is closer to &ldquo;SCUT with extra data&rdquo; than a balanced three-culture model &mdash; but '
-    'have not yet isolated the mechanism; that is the immediate next thing we are chasing.', body))
+    'held-out test data. But the same calibration problem from &sect;4.4 recurs: fixed-0.5-threshold '
+    'accuracy lags AUC out-of-domain in every direction, worst for SCUT+London&rarr;CFD (AUC drops '
+    'from 0.946 in-domain to 0.678 out-of-domain, accuracy to 0.554 &mdash; barely above chance). CFD '
+    'is the weak point throughout: it is both the hardest target to transfer to and, in the final '
+    'combined model, the source with the lowest per-source test AUC (0.819 vs. SCUT&rsquo;s 0.946) '
+    'despite being part of that model&rsquo;s own training data. We suspect this is related to the '
+    'size imbalance noted above &mdash; SCUT is 86% of the combined pool by volume, so the combined '
+    'model is closer to &ldquo;SCUT with extra data&rdquo; than a balanced three-culture model.', body))
 
 table2_data = [
     ['Held out', 'Train\n(n)', 'In-domain\nAcc/AUC', 'Out-of-domain\nAcc/AUC'],
-    ['SCUT (train CFD+London)', '321', '0.667/0.750', '0.577/0.750'],
-    ['CFD (train SCUT+London)', '1959', '0.871/0.946', '0.559/0.676'],
-    ['London (train SCUT+CFD)', '2212', '0.852/0.940', '0.673/0.827'],
+    ['SCUT (train CFD+London)', '321', '0.667/0.749', '0.578/0.749'],
+    ['CFD (train SCUT+London)', '1959', '0.871/0.946', '0.554/0.678'],
+    ['London (train SCUT+CFD)', '2212', '0.848/0.940', '0.714/0.820'],
 ]
 story.append(P('<b>Table 2.</b> Leave-one-source-out cross-validation. &ldquo;Out-of-domain&rdquo; '
-               'evaluates on the entire held-out source, not a subsample.', caption))
+               'evaluates on the entire held-out source, not a subsample. Accuracy at the naive fixed '
+               '0.5 threshold; see the recalibration test below for a fairer number.', caption))
 tbl2 = Table(table2_data, colWidths=[1.35 * inch, 0.35 * inch, 0.75 * inch, 0.75 * inch])
 tbl2.setStyle(TableStyle([
     ('FONTNAME', (0, 0), (-1, 0), 'Times-Bold'),
@@ -505,22 +507,40 @@ tbl2.setStyle(TableStyle([
 ]))
 story.append(tbl2)
 story.append(P(
-    'The final all-sources-combined model reaches 0.851 accuracy / 0.928 AUC overall (n=482 test), '
-    'but the per-source breakdown shows the imbalance directly: 0.880/0.944 on its SCUT test slice '
-    '(n=409) vs. 0.716/0.814 on its CFD slice (n=67); London&rsquo;s slice was too small (&lt;10) to '
-    'report separately. The Grad-CAM panel in Figure&nbsp;7 is entirely SCUT examples for the same '
-    'reason &mdash; SCUT&rsquo;s volume dominates the test set&rsquo;s extreme scores, so this run '
-    'gives no visual read on what the model attends to in CFD or London faces.', body))
+    'The final all-sources-combined model reaches 0.853 accuracy / 0.931 AUC overall (n=482 test), '
+    'but the per-source breakdown shows the imbalance directly: 0.878/0.946 on its SCUT test slice '
+    '(n=409) vs. 0.746/0.819 on its CFD slice (n=67); London&rsquo;s slice was too small (&lt;10) to '
+    'report separately.', body))
+story.append(subsection('5.1 A Direct Fix: Per-Domain Threshold Recalibration'))
+story.append(P(
+    'Every cross-domain result above shows the same shape: AUC (rank-ordering within a domain) '
+    'survives transfer far better than accuracy at a fixed 0.5 cutoff. That is consistent with a '
+    'specific, fixable failure mode &mdash; the model&rsquo;s raw score <i>distribution</i> shifts '
+    'between domains even when its <i>ranking</i> of faces within a domain stays informative, so a '
+    'threshold tuned on the source domain lands in the wrong place on the target domain&rsquo;s score '
+    'distribution. We tested this directly by recomputing accuracy using each evaluation set&rsquo;s '
+    'own median predicted score as the decision threshold, exactly mirroring how the ground-truth '
+    'labels themselves are already defined (&sect;3): out-of-domain SCUT accuracy rises from 0.578 to '
+    '<b>0.684</b>, out-of-domain CFD from 0.554 to <b>0.624</b>; out-of-domain London does not move '
+    '(0.714 both ways) and neither does the final model&rsquo;s CFD slice (0.746 both ways) &mdash; in '
+    'both of those cases the model&rsquo;s own median was already close to 0.5, i.e. already '
+    'reasonably calibrated, so recalibration correctly does nothing rather than over-correcting. The '
+    'fix is real but partial: recalibrated out-of-domain CFD accuracy (0.624) still falls well short '
+    'of what the model achieves once CFD is actually part of training (0.746, matching AUC 0.946 '
+    'in-domain vs. 0.678 held-out) &mdash; some genuine discrimination-quality loss remains on a '
+    'fully unseen domain beyond the calibration shift. Figure&nbsp;7&rsquo;s bottom-but-one panel '
+    'plots both thresholds&rsquo; accuracy side by side for every direction.', body))
 
 story.append(NextPageTemplate('Full'))
 story.append(PageBreak())
-story.append(fit_image(os.path.join(FIG_DIR, 'beauty_classifier_multisource.png'), 5.4 * inch, 8.4 * inch))
+story.append(fit_image(os.path.join(FIG_DIR, 'beauty_classifier_multisource.png'), 5.1 * inch, 8.4 * inch))
 story.append(P(
-    '<b>Figure 7.</b> Leave-one-source-out cross-validation (top three panels) and the final '
-    'combined-source model (fourth panel + Grad-CAM strip). Every out-of-domain ROC beats chance; '
-    'CFD+London&rarr;SCUT (top) shows in-domain and out-of-domain curves nearly overlapping. The '
-    'Grad-CAM examples are all SCUT because SCUT dominates the combined test set by volume '
-    '(&sect;5).', caption))
+    '<b>Figure 7.</b> Leave-one-source-out cross-validation (top three panels), the final '
+    'combined-source model (fourth panel), the threshold-recalibration test (fifth panel: red = '
+    'accuracy at fixed 0.5, green = accuracy at each set&rsquo;s own median predicted score, &sect;5.1), '
+    'and Grad-CAM on the final model&rsquo;s extremes (bottom strip). Every out-of-domain ROC beats '
+    'chance; CFD+London&rarr;SCUT (top) shows in-domain and out-of-domain curves nearly overlapping. '
+    'The Grad-CAM examples are all SCUT because SCUT dominates the combined test set by volume.', caption))
 story.append(NextPageTemplate('TwoCol'))
 story.append(PageBreak())
 
@@ -612,9 +632,10 @@ story.append(P(
     'unremarked fact that our two &ldquo;populations&rdquo; share a single rater culture (&sect;7), which narrows '
     'what the asymmetry can be taken to show. Adding two more datasets with genuinely independent '
     'rater cultures (&sect;5) confirms a real transferable signal exists &mdash; every '
-    'leave-one-source-out direction beats chance &mdash; but does not close the calibration gap: one '
-    'direction transfers with identical in-/out-of-domain AUC (0.750), while another collapses to '
-    'near-chance out-of-domain accuracy (0.559) despite a respectable AUC (0.676). We report this as '
+    'leave-one-source-out direction beats chance &mdash; and per-domain threshold recalibration '
+    '(&sect;5.1) recovers real accuracy (0.554&rarr;0.624 for the hardest direction) by directly '
+    'targeting the diagnosed mechanism, without fully closing the gap to in-domain performance. We '
+    'report this as '
     'an audit of what a plausible-looking classifier does and does not generalize, not as evidence for '
     'or against the objectivity of beauty and not as a novel contribution to the field, and we hope '
     'the sequence of tested and partly-wrong hypotheses is at least as useful to a reader as the ones '
