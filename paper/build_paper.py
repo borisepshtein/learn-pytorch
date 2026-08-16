@@ -140,11 +140,15 @@ story.append(P(
     'the shortcut without fully explaining it. Age, estimated with an off-the-shelf model, turned out to '
     'be the strongest single correlate found (r=&minus;0.494 with the pretty label, a 6.6-year mean gap) '
     '&mdash; yet retraining on an age-matched subset barely changed AUC (0.958 vs. 0.958 unmatched), so '
-    'this strong data-level confound does not appear to be what the model is actually using. We do not '
-    'claim to resolve whether beauty is objective; '
-    'we show that a plausible-looking, statistically stable classifier can still be poorly calibrated '
-    'across populations for reasons only partly explained by any single mechanism we tested, and that '
-    'most of our own hypotheses about why did not survive contact with the full dataset.', abstract_body))
+    'this strong data-level confound does not appear to be what the model is actually using. Finally, '
+    'adding two datasets with genuinely different rater pools (Chicago Face Database, Face Research '
+    'Lab London Set) and running leave-one-source-out cross-validation, every held-out direction beats '
+    'chance (one with identical 0.750 in-/out-of-domain AUC), but calibration collapse recurs '
+    'elsewhere (accuracy as low as 0.559) and remains unsolved. We do not claim to resolve whether '
+    'beauty is objective; we show that a plausible-looking, statistically stable classifier can still '
+    'be poorly calibrated across populations for reasons only partly explained by any single mechanism '
+    'we tested, and that most of our own hypotheses about why did not survive contact with the full '
+    'dataset.', abstract_body))
 
 story.append(Spacer(1, 4))
 story.append(fit_image(os.path.join(FIG_DIR, 'scut_fbp_beauty_rating_scale_examples.png'), 3.6 * inch, 2.3 * inch))
@@ -200,7 +204,7 @@ story.append(P(
     '[<a href="#ref5" color="blue">5</a>] showing that beauty-prediction models trained on SCUT-FBP5500 '
     'predict poorly on other face databases, and separately note the dataset&rsquo;s all-Asian rater pool as '
     'a limitation for generalization, motivating their own multi-database training approach (see '
-    '&sect;6 for why this rater-pool fact also changes how our &sect;4.4&ndash;4.7 results should be read). '
+    '&sect;7 for why this rater-pool fact also changes how our &sect;4.4&ndash;4.7 results should be read). '
     'MEBeauty and similar more ethnically diverse beauty-rating datasets exist precisely to address this '
     'gap. We therefore make no novelty claim for the qualitative phenomenon (poor cross-population '
     'generalization); our contribution, such as it is, is a specific, transparently-reported audit of '
@@ -435,8 +439,93 @@ story.append(P(
 story.append(NextPageTemplate('TwoCol'))
 story.append(PageBreak())
 
-# ---------------- 5. Discussion ----------------
-story.append(section('5. Discussion'))
+# ---------------- 5. Toward a Better Classifier ----------------
+story.append(section('5. Toward a Better Classifier: Cross-Rater-Culture Training'))
+story.append(P(
+    'Everything above is an audit of one classifier; at this point the corresponding author asked '
+    'for something more useful than an audit &mdash; a classifier that does not pick up the wrong '
+    'cues. Section&nbsp;7 notes that CF and AF share a single rater culture (SCUT&rsquo;s 60 Asian '
+    'raters), so &sect;4.4&ndash;4.8 cannot speak to whether judgments transfer across genuinely '
+    'independent rater pools. We added two more independently-rated datasets to test exactly that: '
+    'the Chicago Face Database (CFD) [<a href="#ref7" color="blue">7</a>], 827 individuals rated '
+    '1&ndash;7 by roughly 2,500 U.S. raters across three release waves (597 White/Black/Asian/Latino, '
+    '88 multiracial, 142 India), and the Face Research Lab London Set '
+    '[<a href="#ref8" color="blue">8</a>], 102 individuals (69 white, 13 black, 10 west-Asian, 9 '
+    'east-Asian, 1 mixed) rated 1&ndash;7 by 2,513 raters aged 17&ndash;90. Restricted to female '
+    'subjects for comparability with &sect;4: SCUT contributes 2,750 (CF+AF pooled), CFD 410, London '
+    '49 &mdash; a size imbalance we return to below. Every image was cropped to face-only before '
+    'training, given &sect;4.7&rsquo;s finding that hair region was part of the CF&rarr;AF shortcut: '
+    'SCUT via its own 86-point landmarks as before, CFD/London via YuNet '
+    '[<a href="#ref9" color="blue">9</a>], a lightweight CNN face detector bundled with OpenCV, '
+    'chosen after two other detectors (a DeepFace backend, then MediaPipe) each failed with an '
+    'unrelated library-compatibility crash on the Colab runtime used for training.', body))
+story.append(P(
+    'Validation is leave-one-source-out cross-validation: train on two sources, evaluate '
+    'in-domain (a held-out slice of those two) and out-of-domain (the fully-held-out third source, '
+    'in its entirety) for all three combinations, then train one final model on everything '
+    'combined. Table&nbsp;2 and Figure&nbsp;7 summarize the results.', body))
+story.append(P(
+    'Every held-out direction beats chance by a real margin &mdash; genuine evidence of a '
+    'transferable signal across three independent rater cultures, not just across race within one '
+    'culture. The CFD+London&rarr;SCUT direction is the strongest evidence: AUC is 0.750 both '
+    'in-domain and out-of-domain, meaning a model trained on only 321 images from the two smaller, '
+    'more diverse sources ranks the full 2,750-image SCUT set exactly as well as it ranks its own '
+    'held-out test data. But the same calibration problem from &sect;4.4 recurs: accuracy lags AUC '
+    'out-of-domain in the other two directions, worst for SCUT+London&rarr;CFD (AUC drops from 0.946 '
+    'in-domain to 0.676 out-of-domain, accuracy to 0.559 &mdash; barely above chance). CFD is the '
+    'weak point throughout: it is both the hardest target to transfer to and, in the final combined '
+    'model, the source with the lowest per-source test AUC (0.814 vs. SCUT&rsquo;s 0.944) despite '
+    'being part of that model&rsquo;s own training data. We suspect this is related to the size '
+    'imbalance noted above &mdash; SCUT is 86% of the combined pool by volume, so the combined model '
+    'is closer to &ldquo;SCUT with extra data&rdquo; than a balanced three-culture model &mdash; but '
+    'have not yet isolated the mechanism; that is the immediate next thing we are chasing.', body))
+
+table2_data = [
+    ['Held out', 'Train\n(n)', 'In-domain\nAcc/AUC', 'Out-of-domain\nAcc/AUC'],
+    ['SCUT (train CFD+London)', '321', '0.667/0.750', '0.577/0.750'],
+    ['CFD (train SCUT+London)', '1959', '0.871/0.946', '0.559/0.676'],
+    ['London (train SCUT+CFD)', '2212', '0.852/0.940', '0.673/0.827'],
+]
+story.append(P('<b>Table 2.</b> Leave-one-source-out cross-validation. &ldquo;Out-of-domain&rdquo; '
+               'evaluates on the entire held-out source, not a subsample.', caption))
+tbl2 = Table(table2_data, colWidths=[1.35 * inch, 0.35 * inch, 0.75 * inch, 0.75 * inch])
+tbl2.setStyle(TableStyle([
+    ('FONTNAME', (0, 0), (-1, 0), 'Times-Bold'),
+    ('FONTNAME', (0, 1), (-1, -1), 'Times-Roman'),
+    ('FONTSIZE', (0, 0), (-1, -1), 7.3),
+    ('LEADING', (0, 0), (-1, -1), 8.8),
+    ('ALIGN', (1, 0), (-1, -1), 'CENTER'),
+    ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+    ('LINEABOVE', (0, 0), (-1, 0), 1, colors.black),
+    ('LINEBELOW', (0, 0), (-1, 0), 0.75, colors.black),
+    ('LINEBELOW', (0, -1), (-1, -1), 1, colors.black),
+    ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.HexColor('#f2f2f2')]),
+    ('TOPPADDING', (0, 0), (-1, -1), 3),
+    ('BOTTOMPADDING', (0, 0), (-1, -1), 3),
+]))
+story.append(tbl2)
+story.append(P(
+    'The final all-sources-combined model reaches 0.851 accuracy / 0.928 AUC overall (n=482 test), '
+    'but the per-source breakdown shows the imbalance directly: 0.880/0.944 on its SCUT test slice '
+    '(n=409) vs. 0.716/0.814 on its CFD slice (n=67); London&rsquo;s slice was too small (&lt;10) to '
+    'report separately. The Grad-CAM panel in Figure&nbsp;7 is entirely SCUT examples for the same '
+    'reason &mdash; SCUT&rsquo;s volume dominates the test set&rsquo;s extreme scores, so this run '
+    'gives no visual read on what the model attends to in CFD or London faces.', body))
+
+story.append(NextPageTemplate('Full'))
+story.append(PageBreak())
+story.append(fit_image(os.path.join(FIG_DIR, 'beauty_classifier_multisource.png'), 5.4 * inch, 8.4 * inch))
+story.append(P(
+    '<b>Figure 7.</b> Leave-one-source-out cross-validation (top three panels) and the final '
+    'combined-source model (fourth panel + Grad-CAM strip). Every out-of-domain ROC beats chance; '
+    'CFD+London&rarr;SCUT (top) shows in-domain and out-of-domain curves nearly overlapping. The '
+    'Grad-CAM examples are all SCUT because SCUT dominates the combined test set by volume '
+    '(&sect;5).', caption))
+story.append(NextPageTemplate('TwoCol'))
+story.append(PageBreak())
+
+# ---------------- 6. Discussion ----------------
+story.append(section('6. Discussion'))
 story.append(P(
     'What does this say about whether beauty is objective? Less than either a strict subjectivist or '
     'a strict objectivist would like. The AF&rarr;CF direction transferring almost perfectly argues '
@@ -470,7 +559,7 @@ story.append(P(
     'plausible-looking proxies can point the wrong way in either direction, and checking a hypothesis '
     'with the most direct available test (or getting a second opinion) is not optional.', body))
 
-story.append(section('6. Limitations and Ethical Considerations'))
+story.append(section('7. Limitations and Ethical Considerations'))
 story.append(P(
     '<b>All 5,500 images, both Caucasian and Asian subsets, were rated by the same pool of 60 Asian '
     'raters</b> [<a href="#ref1" color="blue">1</a>, <a href="#ref4" color="blue">4</a>]. We did not know '
@@ -504,7 +593,7 @@ story.append(P(
     'ages for this specific dataset, so the age-matching in &sect;4.8 is only as good as that model&rsquo;s '
     'accuracy.', body))
 
-story.append(section('7. Conclusion'))
+story.append(section('8. Conclusion'))
 story.append(P(
     'A ResNet18 classifier separates &ldquo;pretty&rdquo; from &ldquo;average&rdquo; Caucasian-female faces with high, '
     'stable accuracy, but calibrates poorly when applied to Asian-female faces despite retaining a '
@@ -520,17 +609,24 @@ story.append(P(
     'already established in the literature [<a href="#ref4" color="blue">4</a>, '
     '<a href="#ref5" color="blue">5</a>]; what we add is a specific, transparently-reported trace of '
     'candidate mechanisms, most of which turned out not to be the answer, plus the previously '
-    'unremarked fact that our two &ldquo;populations&rdquo; share a single rater culture (&sect;6), which narrows '
-    'what the asymmetry can be taken to show. We report this as an audit of what a plausible-looking '
-    'classifier does and does not generalize, not as evidence for or against the objectivity of beauty '
-    'and not as a novel contribution to the field, and we hope the sequence of tested and partly-wrong '
-    'hypotheses is at least as useful to a reader as the ones that held up.', body))
+    'unremarked fact that our two &ldquo;populations&rdquo; share a single rater culture (&sect;7), which narrows '
+    'what the asymmetry can be taken to show. Adding two more datasets with genuinely independent '
+    'rater cultures (&sect;5) confirms a real transferable signal exists &mdash; every '
+    'leave-one-source-out direction beats chance &mdash; but does not close the calibration gap: one '
+    'direction transfers with identical in-/out-of-domain AUC (0.750), while another collapses to '
+    'near-chance out-of-domain accuracy (0.559) despite a respectable AUC (0.676). We report this as '
+    'an audit of what a plausible-looking classifier does and does not generalize, not as evidence for '
+    'or against the objectivity of beauty and not as a novel contribution to the field, and we hope '
+    'the sequence of tested and partly-wrong hypotheses is at least as useful to a reader as the ones '
+    'that held up.', body))
 
 story.append(section('Acknowledgments'))
 story.append(P(
-    'We thank Google Colab&rsquo;s free GPU tier, the maintainers of SCUT-FBP5500 for releasing it for '
-    'research, and the corresponding author for catching a wrong claim about grayscale images before '
-    'it became a wrong experiment.', body))
+    'We thank Google Colab&rsquo;s free GPU tier, the maintainers of SCUT-FBP5500, the Chicago Face '
+    'Database, and the Face Research Lab London Set for releasing their data for research, and the '
+    'corresponding author for catching a wrong claim about grayscale images before it became a wrong '
+    'experiment, and for pushing back on Viola-Jones when a real deep-learning face detector was the '
+    'right call.', body))
 
 story.append(section('References'))
 story.append(P(
@@ -555,6 +651,16 @@ story.append(P(
     '<a name="ref6"/>[6] S. I. Serengil and A. Ozpinar. HyperExtended LightFace: A Facial Attribute '
     'Analysis Framework. <i>International Conference on Engineering and Emerging Technologies '
     '(ICEET)</i>, 2021.', ref_style))
+story.append(P(
+    '<a name="ref7"/>[7] D. S. Ma, J. Correll, and B. Wittenbrink. The Chicago Face Database: A '
+    'Free Stimulus Set of Faces and Norming Data. <i>Behavior Research Methods</i>, '
+    '47(4):1122&ndash;1135, 2015.', ref_style))
+story.append(P(
+    '<a name="ref8"/>[8] L. DeBruine and J. Benedict. Face Research Lab London Set. '
+    '<i>figshare</i>, dataset, 2017.', ref_style))
+story.append(P(
+    '<a name="ref9"/>[9] W. Wu, H. Peng, and S. Yu. YuNet: A Tiny Millisecond-level Face Detector. '
+    '<i>Machine Intelligence Research</i>, 20(5):656&ndash;665, 2023.', ref_style))
 
 doc = make_doc()
 doc.build(story)
