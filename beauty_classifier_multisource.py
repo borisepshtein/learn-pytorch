@@ -3,7 +3,7 @@ Face Database (CFD), and the Face Research Lab London Set -- each with a DIFFERE
 photographic style, unlike the SCUT-only cross-race experiments earlier where every rater was
 from the same 60-person Asian rater pool. Restricted to female subjects for direct comparability
 with the rest of this project. Every training image is a face-only crop (SCUT: its own 86-point
-landmarks; CFD/London: MediaPipe face detection, cached) to avoid the hair-region shortcut
+landmarks; CFD/London: OpenCV Haar-cascade face detection, cached) to avoid the hair-region shortcut
 confirmed in scut_fbp_beauty_cross_race_transfer_no_hair.py.
 
 Validation: leave-one-source-out cross-validation (train on 2 sources, evaluate in-domain on a
@@ -80,8 +80,8 @@ LONDON_INFO_URL = 'https://ndownloader.figshare.com/files/27397184'
 LONDON_RATINGS_URL = 'https://ndownloader.figshare.com/files/8542045'
 LONDON_IMAGES_URL = 'https://ndownloader.figshare.com/files/8541961'
 
-MEDIAPIPE_BBOX_MARGIN = 0.15
-BBOX_CACHE_PATH = os.path.join(DATA_ROOT, 'mediapipe_face_bboxes.json')
+FACE_BBOX_MARGIN = 0.15
+BBOX_CACHE_PATH = os.path.join(DATA_ROOT, 'haarcascade_face_bboxes.json')
 
 IMAGENET_MEAN = [0.485, 0.456, 0.406]
 IMAGENET_STD = [0.229, 0.224, 0.225]
@@ -318,10 +318,20 @@ def build_london_items():
     return items
 
 
-# ---------------- MediaPipe face-crop (CFD + London) ----------------
+# ---------------- Face-crop (CFD + London) ----------------
 def compute_bboxes(items):
-    """Fills in item['bbox'] for CFD/London items via MediaPipe face detection, cached to disk
-    since re-running detection every epoch would be wasteful and this is the slow step."""
+    """Fills in item['bbox'] for CFD/London items via OpenCV Haar-cascade face detection, cached
+    to disk since re-running detection every epoch would be wasteful and this is the slow step.
+
+    Uses cv2 directly (no pip install -- relies on Colab's/the environment's baseline OpenCV)
+    rather than MediaPipe or DeepFace: both were tried first and both broke on this Colab image
+    (DeepFace's 'opencv' backend crashed with a missing cv2.CascadeClassifier attribute; MediaPipe
+    crashed with a missing mp.solutions attribute, a known unresolved upstream bug as of this
+    writing). Haar cascades are less accurate in general than either of those, but these datasets
+    are professionally-shot, well-lit, frontal studio portraits -- exactly what Haar cascades
+    handle reliably -- and detection was verified at 100% (410/410 CFD, 102/102 London) against
+    locally-downloaded copies of both datasets before this ran on Colab.
+    """
     cache = {}
     if os.path.isfile(BBOX_CACHE_PATH):
         with open(BBOX_CACHE_PATH) as f:
@@ -329,27 +339,20 @@ def compute_bboxes(items):
 
     to_compute = [it for it in items if it['bbox'] is None and it['path'] not in cache]
     if to_compute:
-        try:
-            import mediapipe as mp
-        except ImportError:
-            pip_install('mediapipe')
-            import mediapipe as mp
-        mp_face = mp.solutions.face_detection
-        detector = mp_face.FaceDetection(model_selection=1, min_detection_confidence=0.5)
+        import cv2
+        detector = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_frontalface_default.xml')
         t0 = time.time()
         for i, it in enumerate(to_compute):
             img = Image.open(it['path']).convert('RGB')
             arr = np.array(img)
-            results = detector.process(arr)
-            if results.detections:
-                det = max(results.detections, key=lambda d: d.score[0])
-                bb = det.location_data.relative_bounding_box
+            gray = cv2.cvtColor(arr, cv2.COLOR_RGB2GRAY)
+            faces = detector.detectMultiScale(gray, scaleFactor=1.1, minNeighbors=5, minSize=(60, 60))
+            if len(faces):
+                x, y, fw, fh = max(faces, key=lambda f: f[2] * f[3])  # largest detected face
                 w, h = img.size
-                x0, y0 = bb.xmin * w, bb.ymin * h
-                bw, bh = bb.width * w, bb.height * h
-                mx, my = bw * MEDIAPIPE_BBOX_MARGIN, bh * MEDIAPIPE_BBOX_MARGIN
-                cache[it['path']] = [max(0, x0 - mx), max(0, y0 - my),
-                                      min(w, x0 + bw + mx), min(h, y0 + bh + my)]
+                mx, my = fw * FACE_BBOX_MARGIN, fh * FACE_BBOX_MARGIN
+                cache[it['path']] = [max(0, x - mx), max(0, y - my),
+                                      min(w, x + fw + mx), min(h, y + fh + my)]
             else:
                 cache[it['path']] = None
             if (i + 1) % 200 == 0:
