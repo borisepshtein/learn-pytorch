@@ -477,6 +477,14 @@ def train_model(train_items, val_items):
 
 
 def evaluate(model, items):
+    """Reports accuracy at two thresholds: the naive fixed 0.5 cutoff, and each evaluation set's
+    own median predicted score -- mirroring how labels themselves are defined via each source's
+    own score median (build_scut_items/build_cfd_items/build_london_items), rather than a single
+    global cutoff. Earlier cross-domain results repeatedly showed AUC (rank-ordering) transferring
+    far better than fixed-threshold accuracy: the model's raw score distribution shifts between
+    domains even when its ranking of faces within a domain stays informative, so a threshold tuned
+    on the source domain can land in the wrong place on the target domain's score distribution.
+    Median-threshold accuracy tests directly whether that's the whole story."""
     loader = DataLoader(FaceDataset(items, eval_transform), batch_size=BATCH_SIZE, shuffle=False)
     model.eval()
     probs, labels = [], []
@@ -488,8 +496,14 @@ def evaluate(model, items):
     probs = torch.cat(probs).numpy()
     labels = torch.cat(labels).numpy().astype(int)
     fpr, tpr, _ = roc_curve(labels, probs)
-    metrics = {'n': len(labels), 'accuracy': float(((probs > 0.5) == labels).mean()),
-               'roc_auc': float(auc(fpr, tpr))}
+    own_median = float(np.median(probs))
+    metrics = {
+        'n': len(labels),
+        'accuracy': float(((probs > 0.5) == labels).mean()),
+        'accuracy_own_median_threshold': float(((probs > own_median) == labels).mean()),
+        'own_median_threshold': own_median,
+        'roc_auc': float(auc(fpr, tpr)),
+    }
     return metrics, fpr, tpr
 
 
@@ -562,8 +576,10 @@ if len(active_sources) >= 3:
         in_metrics, in_fpr, in_tpr = evaluate(model, test_items)
         out_metrics, out_fpr, out_tpr = evaluate(model, sources[held_out])
         print(f'  {epochs_run} epochs ({time.time() - t0:.0f}s)  '
-              f'in-domain acc={in_metrics["accuracy"]:.3f} auc={in_metrics["roc_auc"]:.3f}  '
-              f'out-of-domain({held_out}) acc={out_metrics["accuracy"]:.3f} auc={out_metrics["roc_auc"]:.3f}')
+              f'in-domain acc={in_metrics["accuracy"]:.3f} (median-thresh={in_metrics["accuracy_own_median_threshold"]:.3f}) '
+              f'auc={in_metrics["roc_auc"]:.3f}  '
+              f'out-of-domain({held_out}) acc={out_metrics["accuracy"]:.3f} '
+              f'(median-thresh={out_metrics["accuracy_own_median_threshold"]:.3f}) auc={out_metrics["roc_auc"]:.3f}')
         loso_results.append({
             'held_out': held_out, 'train_sources': train_sources, 'n_train': len(train_items),
             'epochs_run': epochs_run, 'best_val_loss': float(best_val_loss),
@@ -588,7 +604,9 @@ t0 = time.time()
 final_model, final_epochs, final_best_val_loss = train_model(train_items, val_items)
 final_metrics, final_fpr, final_tpr = evaluate(final_model, test_items)
 print(f'Final model: {final_epochs} epochs ({time.time() - t0:.0f}s)  '
-      f'accuracy={final_metrics["accuracy"]:.3f}  roc_auc={final_metrics["roc_auc"]:.3f}')
+      f'accuracy={final_metrics["accuracy"]:.3f} '
+      f'(median-thresh={final_metrics["accuracy_own_median_threshold"]:.3f})  '
+      f'roc_auc={final_metrics["roc_auc"]:.3f}')
 
 per_source_final = {}
 for name in active_sources:
@@ -597,10 +615,11 @@ for name in active_sources:
         m, _, _ = evaluate(final_model, src_test)
         per_source_final[name] = m
         print(f'  final model on {name}-only test slice (n={m["n"]}): '
-              f'accuracy={m["accuracy"]:.3f}  roc_auc={m["roc_auc"]:.3f}')
+              f'accuracy={m["accuracy"]:.3f} (median-thresh={m["accuracy_own_median_threshold"]:.3f})  '
+              f'roc_auc={m["roc_auc"]:.3f}')
 
 # ---------------- Visualization ----------------
-n_rows = len(loso_results) + 2  # each LOSO ROC, final ROC, Grad-CAM strip
+n_rows = len(loso_results) + 3  # each LOSO ROC, final ROC, calibration bar chart, Grad-CAM strip
 fig = plt.figure(figsize=(11, 4.2 * n_rows))
 gs = fig.add_gridspec(n_rows, N_EXAMPLES * 2)
 
@@ -625,6 +644,28 @@ ax_final.set_title(f'Final model ({"+".join(active_sources)}) test ROC')
 ax_final.set_xlabel('False positive rate')
 ax_final.set_ylabel('True positive rate')
 ax_final.legend(loc='lower right', fontsize=8)
+row += 1
+
+ax_cal = fig.add_subplot(gs[row, :])
+cal_labels, cal_fixed, cal_median = [], [], []
+for r in loso_results:
+    cal_labels.append(f"out: {r['held_out']}")
+    cal_fixed.append(r['out_of_domain']['accuracy'])
+    cal_median.append(r['out_of_domain']['accuracy_own_median_threshold'])
+for name, m in per_source_final.items():
+    cal_labels.append(f"final: {name}")
+    cal_fixed.append(m['accuracy'])
+    cal_median.append(m['accuracy_own_median_threshold'])
+x = np.arange(len(cal_labels))
+width = 0.35
+ax_cal.bar(x - width / 2, cal_fixed, width, label='Accuracy @ fixed 0.5', color='tab:red')
+ax_cal.bar(x + width / 2, cal_median, width, label='Accuracy @ own median threshold', color='tab:green')
+ax_cal.axhline(0.5, color='gray', linestyle='--', linewidth=0.8, label='Chance')
+ax_cal.set_xticks(x)
+ax_cal.set_xticklabels(cal_labels, fontsize=8)
+ax_cal.set_ylim(0, 1.05)
+ax_cal.set_title('Calibration test: does a per-domain median threshold recover the accuracy AUC implies?')
+ax_cal.legend(loc='lower right', fontsize=8)
 row += 1
 
 loader = DataLoader(FaceDataset(test_items, eval_transform), batch_size=BATCH_SIZE, shuffle=False)
