@@ -152,14 +152,17 @@ def build_scut_items():
 
 # ---------------- CFD ----------------
 def ensure_cfd():
+    """Note: does NOT call drive.mount() itself -- that only works from an actual notebook cell
+    (it needs the interactive Colab kernel connection), not from a script run via `!python ...`,
+    which executes as a plain subprocess with no kernel to talk to. Drive must already be mounted
+    (see the notebook cell before this script's cell) before this function is called."""
     os.makedirs(DATA_ROOT, exist_ok=True)
     if os.path.isdir(CFD_EXTRACT_DIR):
         return True
-    try:
-        from google.colab import drive
-        drive.mount('/content/drive')
-    except ImportError:
-        print('Not running in Colab (or Drive already mounted) -- skipping CFD.')
+    if not os.path.isdir('/content/drive/MyDrive'):
+        print('Google Drive is not mounted. Run the "mount Google Drive" cell above (must be its own '
+              'notebook cell, not this script) and re-run. Skipping CFD for this run.')
+        return False
     if not os.path.isfile(CFD_DRIVE_ZIP):
         print(f'CFD not found at {CFD_DRIVE_ZIP} in your Google Drive -- skipping CFD for this run.\n'
               f'Request access at https://www.chicagofaces.org/download/ and upload the zip there to include it.')
