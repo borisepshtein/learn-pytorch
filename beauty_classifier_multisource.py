@@ -329,7 +329,11 @@ def compute_bboxes(items):
 
     to_compute = [it for it in items if it['bbox'] is None and it['path'] not in cache]
     if to_compute:
-        import mediapipe as mp
+        try:
+            import mediapipe as mp
+        except ImportError:
+            pip_install('mediapipe')
+            import mediapipe as mp
         mp_face = mp.solutions.face_detection
         detector = mp_face.FaceDetection(model_selection=1, min_detection_confidence=0.5)
         t0 = time.time()
