@@ -3,7 +3,7 @@ Face Database (CFD), and the Face Research Lab London Set -- each with a DIFFERE
 photographic style, unlike the SCUT-only cross-race experiments earlier where every rater was
 from the same 60-person Asian rater pool. Restricted to female subjects for direct comparability
 with the rest of this project. Every training image is a face-only crop (SCUT: its own 86-point
-landmarks; CFD/London: OpenCV Haar-cascade face detection, cached) to avoid the hair-region shortcut
+landmarks; CFD/London: YuNet deep-learning face detection via cv2, cached) to avoid the hair-region shortcut
 confirmed in scut_fbp_beauty_cross_race_transfer_no_hair.py.
 
 Validation: leave-one-source-out cross-validation (train on 2 sources, evaluate in-domain on a
@@ -80,8 +80,12 @@ LONDON_INFO_URL = 'https://ndownloader.figshare.com/files/27397184'
 LONDON_RATINGS_URL = 'https://ndownloader.figshare.com/files/8542045'
 LONDON_IMAGES_URL = 'https://ndownloader.figshare.com/files/8541961'
 
-FACE_BBOX_MARGIN = 0.15
-BBOX_CACHE_PATH = os.path.join(DATA_ROOT, 'haarcascade_face_bboxes.json')
+FACE_BBOX_MARGIN = 0.5  # YuNet's raw box is tight (eyes-to-chin); 0.5 gives eyebrow/hairline-to-chin
+FACE_DETECT_SCORE_THRESHOLD = 0.3  # verified real faces at 0.6 threshold scored as low as 0.54
+YUNET_MODEL_URL = ('https://github.com/opencv/opencv_zoo/raw/main/models/'
+                    'face_detection_yunet/face_detection_yunet_2023mar.onnx')
+YUNET_MODEL_PATH = os.path.join(DATA_ROOT, 'face_detection_yunet_2023mar.onnx')
+BBOX_CACHE_PATH = os.path.join(DATA_ROOT, 'yunet_face_bboxes.json')
 
 IMAGENET_MEAN = [0.485, 0.456, 0.406]
 IMAGENET_STD = [0.229, 0.224, 0.225]
@@ -319,19 +323,33 @@ def build_london_items():
 
 
 # ---------------- Face-crop (CFD + London) ----------------
-def compute_bboxes(items):
-    """Fills in item['bbox'] for CFD/London items via OpenCV Haar-cascade face detection, cached
-    to disk since re-running detection every epoch would be wasteful and this is the slow step.
+def ensure_yunet_model():
+    if not os.path.isfile(YUNET_MODEL_PATH):
+        import urllib.request
+        print('Downloading YuNet face detection model (~230KB) ...')
+        urllib.request.urlretrieve(YUNET_MODEL_URL, YUNET_MODEL_PATH)
 
-    Uses cv2 directly (no pip install -- relies on Colab's/the environment's baseline OpenCV)
-    rather than MediaPipe or DeepFace: both were tried first and both broke on this Colab image
-    (DeepFace's 'opencv' backend crashed with a missing cv2.CascadeClassifier attribute; MediaPipe
-    crashed with a missing mp.solutions attribute, a known unresolved upstream bug as of this
-    writing). Haar cascades are less accurate in general than either of those, but these datasets
-    are professionally-shot, well-lit, frontal studio portraits -- exactly what Haar cascades
-    handle reliably -- and detection was verified at 100% (410/410 CFD, 102/102 London) against
-    locally-downloaded copies of both datasets before this ran on Colab.
+
+def compute_bboxes(items):
+    """Fills in item['bbox'] for CFD/London items via YuNet (cv2.FaceDetectorYN), a lightweight
+    deep-learning face detector bundled with OpenCV's objdetect module, cached to disk since
+    re-running detection every epoch would be wasteful and this is the slow step.
+
+    Two other face detectors were tried first and both broke on this Colab image: DeepFace's
+    'opencv' backend crashed with a missing cv2.CascadeClassifier attribute, then plain OpenCV
+    Haar cascades (chosen as the fallback) worked but are meaningfully less accurate than a real
+    detector; MediaPipe (mp.solutions.face_detection) crashed with a missing 'solutions' attribute,
+    a known unresolved upstream bug. YuNet gives actual DL-quality detection while still requiring
+    no extra pip install (only cv2, already needed) -- just one small (~230KB) .onnx model file
+    fetched at runtime, same pattern as every other dataset asset in this script.
+
+    Threshold note: at the OpenCV-recommended default score_threshold=0.6, 70/410 real CFD faces
+    were missed (verified locally, roughly proportional across all ethnicity groups: not a
+    detector bias, since every genuine face scored 0.54-0.59 and 0.3 recovers all 410/410 with no
+    spurious detections). FACE_BBOX_MARGIN is larger than the earlier MediaPipe/Haar attempts
+    because YuNet's raw box is tighter (eyes-to-chin rather than eyebrow-to-chin).
     """
+    ensure_yunet_model()
     cache = {}
     if os.path.isfile(BBOX_CACHE_PATH):
         with open(BBOX_CACHE_PATH) as f:
@@ -340,19 +358,20 @@ def compute_bboxes(items):
     to_compute = [it for it in items if it['bbox'] is None and it['path'] not in cache]
     if to_compute:
         import cv2
-        detector = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_frontalface_default.xml')
+        detector = cv2.FaceDetectorYN_create(YUNET_MODEL_PATH, '', (320, 320),
+                                              score_threshold=FACE_DETECT_SCORE_THRESHOLD)
         t0 = time.time()
         for i, it in enumerate(to_compute):
             img = Image.open(it['path']).convert('RGB')
-            arr = np.array(img)
-            gray = cv2.cvtColor(arr, cv2.COLOR_RGB2GRAY)
-            faces = detector.detectMultiScale(gray, scaleFactor=1.1, minNeighbors=5, minSize=(60, 60))
-            if len(faces):
-                x, y, fw, fh = max(faces, key=lambda f: f[2] * f[3])  # largest detected face
-                w, h = img.size
+            arr = np.array(img)[:, :, ::-1]  # RGB -> BGR for opencv
+            h, w = arr.shape[:2]
+            detector.setInputSize((w, h))
+            _, faces = detector.detect(arr)
+            if faces is not None and len(faces):
+                x, y, fw, fh = max(faces, key=lambda f: f[14])[:4]  # highest-confidence face
                 mx, my = fw * FACE_BBOX_MARGIN, fh * FACE_BBOX_MARGIN
-                cache[it['path']] = [max(0, x - mx), max(0, y - my),
-                                      min(w, x + fw + mx), min(h, y + fh + my)]
+                cache[it['path']] = [max(0, float(x - mx)), max(0, float(y - my)),
+                                      min(w, float(x + fw + mx)), min(h, float(y + fh + my))]
             else:
                 cache[it['path']] = None
             if (i + 1) % 200 == 0:
